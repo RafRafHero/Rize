@@ -1,0 +1,10 @@
+Rizo Browser End User License Agreement
+
+1. Terms
+By downloading and using Rizo Browser, you agree to these terms.
+
+2. License
+Rizo is free software. Enjoy it!
+
+3. Disclaimer
+This software is provided "as is", without warranty of any kind.

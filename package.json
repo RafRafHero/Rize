@@ -1,0 +1,84 @@
+{
+  "name": "rizo",
+  "private": true,
+  "version": "1.0.0",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently \"tsc -p electron/tsconfig.json -w\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "build": "tsc -p electron/tsconfig.json && vite build && electron-builder",
+    "build:win": "tsc -p electron/tsconfig.json && vite build && electron-builder --windows nsis",
+    "preview": "vite preview"
+  },
+  "description": "Rizo Browser",
+  "author": "Rizo Team",
+  "dependencies": {
+    "@types/uuid": "^10.0.0",
+    "clsx": "^2.1.1",
+    "electron-store": "^11.0.2",
+    "electron-squirrel-startup": "^1.0.1",
+    "framer-motion": "^12.26.2",
+    "lucide-react": "^0.562.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwind-merge": "^3.4.0",
+    "uuid": "^13.0.0",
+    "zustand": "^5.0.10"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.9",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.23",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.4.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.1",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vite": "^7.2.4",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.rizobrowser.app",
+    "productName": "Rizo",
+    "artifactName": "Rizo Setup ${version}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "protocols": [
+        {
+          "name": "Rizo URL",
+          "schemes": [
+            "http",
+            "https",
+            "rizo"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh",
+      "allowElevation": true
+    }
+  }
+}

@@ -55,12 +55,15 @@ export interface Settings {
     secondaryTabId: string | null;
     particleEffects: boolean;
     particleSettings: {
+        amount: number;
         speed: number;
         colorVariation: number;
         bookmarksBarOpacity: number;
     };
     geminiPanelWidth: number;
     neverSavePasswords: string[];
+    adBlockEnabled: boolean;
+    adBlockWhitelist: string[];
 }
 
 export interface Tab {
@@ -100,6 +103,8 @@ interface BrowserState {
     // UI State
     isDownloadsOpen: boolean;
     isGeminiPanelOpen: boolean;
+    isAdBlockerOpen: boolean;
+    blockedAdsCount: number;
 
     // Downloads
     activeDownloads: Record<string, DownloadItem>;
@@ -132,8 +137,13 @@ interface BrowserState {
 
     // Gemini Actions
     toggleGeminiPanel: () => void;
+    toggleAdBlocker: () => void;
     setInternalPage: (page: 'history' | 'passwords' | null) => void;
     clearCapturedPassword: () => void;
+    toggleAdBlockerEnabled: () => void;
+    addToWhitelist: (domain: string) => void;
+    removeFromWhitelist: (domain: string) => void;
+    updateBlockedCount: (count: number) => void;
 
 
     // Download Actions
@@ -185,17 +195,22 @@ export const useStore = create<BrowserState>((set, get) => ({
         secondaryTabId: null,
         particleEffects: true,
         particleSettings: {
+            amount: 10,
             speed: 1,
             colorVariation: 50,
             bookmarksBarOpacity: 0.9
         },
         geminiPanelWidth: 400,
-        neverSavePasswords: []
+        neverSavePasswords: [],
+        adBlockEnabled: true,
+        adBlockWhitelist: []
     },
     isSettingsOpen: false,
     settingsSection: 'general',
     isDownloadsOpen: false,
     isGeminiPanelOpen: false,
+    isAdBlockerOpen: false,
+    blockedAdsCount: 0,
     activeInternalPage: null,
     capturedPassword: null,
     navFeedback: null,
@@ -291,6 +306,31 @@ export const useStore = create<BrowserState>((set, get) => ({
     }),
 
     toggleGeminiPanel: () => set((state) => ({ isGeminiPanelOpen: !state.isGeminiPanelOpen })),
+
+    toggleAdBlocker: () => set((state) => ({ isAdBlockerOpen: !state.isAdBlockerOpen })),
+
+    toggleAdBlockerEnabled: () => set((state) => {
+        const enabled = !state.settings.adBlockEnabled;
+        const updated = { ...state.settings, adBlockEnabled: enabled };
+        (window as any).electron?.store.set('settings', updated);
+        return { settings: updated };
+    }),
+
+    addToWhitelist: (domain) => set((state) => {
+        const whitelist = [...state.settings.adBlockWhitelist, domain];
+        const updated = { ...state.settings, adBlockWhitelist: whitelist };
+        (window as any).electron?.store.set('settings', updated);
+        return { settings: updated };
+    }),
+
+    removeFromWhitelist: (domain) => set((state) => {
+        const whitelist = state.settings.adBlockWhitelist.filter(d => d !== domain);
+        const updated = { ...state.settings, adBlockWhitelist: whitelist };
+        (window as any).electron?.store.set('settings', updated);
+        return { settings: updated };
+    }),
+
+    updateBlockedCount: (count) => set({ blockedAdsCount: count }),
 
     setInternalPage: (page) => set({ activeInternalPage: page }),
 

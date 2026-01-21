@@ -42,10 +42,9 @@ export const Settings: React.FC = () => {
                     {/* Modal */}
                     <motion.div
                         initial={{ opacity: 0, scale: 0.95, y: '-50%', x: '-50%' }}
-                        animate={{ opacity: 1, scale: 1, y: '-50%', x: '-50%' } as any}
-                        exit={{ opacity: 0, scale: 0.95, y: '-50%', x: '-50%' } as any}
+                        animate={{ opacity: 1, scale: 1, y: '-50%', x: '-50%' }}
+                        exit={{ opacity: 0, scale: 0.95, y: '-50%', x: '-50%' }}
                         className="fixed top-1/2 left-1/2 w-[90%] max-w-2xl h-[80vh] liquid-glass border border-border/50 shadow-2xl rounded-2xl z-[70] overflow-hidden flex flex-col"
-                        style={{ transform: 'translate(-50%, -50%)' }}
                     >
                         <div className="flex items-center justify-between p-4 border-b border-border/50">
                             <h2 className="text-lg font-semibold">Settings</h2>

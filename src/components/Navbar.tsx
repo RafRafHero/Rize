@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowLeft, ArrowRight, RotateCw, Menu, X, Minus, Square, Star, SplitSquareHorizontal, Plus,
-    Search, Globe, ChevronRight, Glasses, Users, GripVertical
+    Search, Globe, ChevronRight, Glasses, Users, GripVertical, Shield
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
 import { BookmarkPopover } from './BookmarkPopover';
@@ -11,6 +11,7 @@ import { cn } from '../lib/utils';
 import { DownloadManager } from './DownloadManager';
 import { MenuPopover } from './MenuPopover';
 import { isValidUrl, formatUrl } from '../lib/search';
+import { AdBlockerPanel } from './AdBlockerPanel';
 
 interface NavbarProps {
     onReload: () => void;
@@ -20,7 +21,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) => {
-    const { tabs, activeTabId, setActiveTab, addTab, updateTab, toggleSettings, addBookmark, removeBookmark, bookmarks, favorites, settings, navFeedback, updateSettings, addDownload, updateDownload, completeDownload, siteHistory, isIncognito, isGeminiPanelOpen, toggleGeminiPanel } = useStore();
+    const { tabs, activeTabId, setActiveTab, addTab, updateTab, toggleSettings, addBookmark, removeBookmark, bookmarks, favorites, settings, navFeedback, updateSettings, addDownload, updateDownload, completeDownload, siteHistory, isIncognito, isGeminiPanelOpen, toggleGeminiPanel, isAdBlockerOpen, toggleAdBlocker } = useStore();
 
     const activeTab = tabs.find(t => t.id === activeTabId);
     const currentUrl = activeTab?.url || '';
@@ -180,7 +181,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                         disabled={!activeTab?.canGoBack}
                         onClick={onBack}
                         className={cn(
-                            "p-1.5 rounded-full disabled:opacity-30 transition-colors",
+                            "p-1.5 rounded-full disabled:opacity-30 transition-colors hover:bg-secondary/80",
                             isIncognito && "text-white"
                         )}
                     >
@@ -193,7 +194,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                         disabled={!activeTab?.canGoForward}
                         onClick={onForward}
                         className={cn(
-                            "p-1.5 rounded-full disabled:opacity-30 transition-colors",
+                            "p-1.5 rounded-full disabled:opacity-30 transition-colors hover:bg-secondary/80",
                             isIncognito && "text-white"
                         )}
                     >
@@ -203,7 +204,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                         whileTap={{ scale: 0.9 }}
                         onClick={onReload}
                         className={cn(
-                            "p-1.5 rounded-full transition-colors",
+                            "p-1.5 rounded-full transition-colors hover:bg-secondary/80",
                             isIncognito && "text-white"
                         )}
                     >
@@ -378,12 +379,27 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                         <MenuPopover isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
                     </div>
 
+                    <div className="relative">
+                        <motion.button
+                            whileTap={{ scale: 0.9 }}
+                            onClick={toggleAdBlocker}
+                            className={cn(
+                                "p-2 rounded-xl transition-all duration-300",
+                                isAdBlockerOpen ? "bg-primary/20 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-white/10"
+                            )}
+                            title="Rizo Guard Protection"
+                        >
+                            <Shield size={18} />
+                        </motion.button>
+                        <AdBlockerPanel />
+                    </div>
+
                     <motion.button
                         whileTap={{ scale: 0.9 }}
                         onClick={toggleGeminiPanel}
                         className={cn(
                             "p-2 rounded-xl transition-all duration-300",
-                            isGeminiPanelOpen ? "bg-white/20 text-blue-400" : "hover:bg-white/10 text-white/70 hover:text-white"
+                            isGeminiPanelOpen ? "bg-white/20 text-blue-400" : "text-muted-foreground hover:text-foreground hover:bg-white/10"
                         )}
                         title="Toggle Gemini AI"
                     >

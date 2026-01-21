@@ -71,7 +71,7 @@ export const GeminiPanel: React.FC = () => {
                     <div className="flex items-center justify-between px-4 h-12 bg-secondary/30 border-b border-white/5 no-drag">
                         <div className="flex items-center gap-2">
                             <GeminiIcon size={20} />
-                            <span className="text-sm font-bold tracking-tight bg-gradient-to-r from-[#8000FF] to-[#D0F6FF] bg-clip-text text-transparent">Gemini AI</span>
+                            <span className="text-sm font-bold tracking-tight bg-gradient-to-r from-[#8000FF] to-[#FFA256] bg-clip-text text-transparent">Gemini AI</span>
                         </div>
                         <div className="flex items-center gap-1">
                             <button

@@ -4,6 +4,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
+const adblocker_electron_1 = require("@cliqz/adblocker-electron");
+const cross_fetch_1 = __importDefault(require("cross-fetch"));
 const crypto_1 = require("crypto");
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -16,14 +18,18 @@ const initElectronStore = async () => {
     store = new Store();
     return store;
 };
-// Start initialization immediately
-initElectronStore();
+// initialization happens in app.ready
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
     electron_1.app.quit();
 }
 // Security: Disable remote debugging port if accidentally passed
 electron_1.app.commandLine.removeSwitch('remote-debugging-port');
+// Performance Mode: Increase parallelism for asset fetching
+electron_1.app.commandLine.appendSwitch('max-connections-per-server', '10');
+electron_1.app.commandLine.appendSwitch('enable-gpu-rasterization');
+electron_1.app.commandLine.appendSwitch('enable-zero-copy');
+electron_1.app.commandLine.appendSwitch('ignore-gpu-blocklist');
 // Ensure Rizo is registered for URL protocols
 if (process.defaultApp) {
     if (process.argv.length >= 2) {
@@ -36,6 +42,44 @@ else {
 // Global User-Agent spoofing to bypass Google's Electron detection
 const FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0';
 electron_1.app.userAgentFallback = FIREFOX_UA;
+// Enterprise AdBlocker Logic
+let blockerEngine = null;
+const getBlocker = async () => {
+    if (blockerEngine)
+        return blockerEngine;
+    const enginePath = path_1.default.join(electron_1.app.getPath('userData'), 'adblocker-engine.bin');
+    if (fs_1.default.existsSync(enginePath)) {
+        try {
+            const buffer = fs_1.default.readFileSync(enginePath);
+            blockerEngine = adblocker_electron_1.ElectronBlocker.deserialize(buffer);
+            console.log('[Main] AdBlocker engine loaded from cache');
+            return blockerEngine;
+        }
+        catch (e) {
+            console.error('[Main] Failed to deserialize adblocker engine', e);
+        }
+    }
+    console.log('[Main] Fetching prebuilt AdBlocker engine');
+    blockerEngine = await adblocker_electron_1.ElectronBlocker.fromPrebuiltAdsAndTracking(cross_fetch_1.default);
+    fs_1.default.writeFileSync(enginePath, blockerEngine.serialize());
+    return blockerEngine;
+};
+const enableAdBlocker = async (ses) => {
+    const blocker = await getBlocker();
+    blocker.enableBlockingInSession(ses);
+    // For cosmetic filtering, adblocker-electron requires a preload script.
+    try {
+        const { PRELOAD_PATH } = require('@cliqz/adblocker-electron/dist/commonjs/preload_path');
+        const currentPreloads = ses.getPreloads();
+        if (!currentPreloads.includes(PRELOAD_PATH)) {
+            ses.setPreloads([...currentPreloads, PRELOAD_PATH]);
+        }
+        console.log('[Main] AdBlocker (with cosmetic filtering) enabled for session');
+    }
+    catch (e) {
+        console.error('[Main] Failed to set AdBlocker preload', e);
+    }
+};
 // Profile Management Configuration
 const originalUserDataPath = electron_1.app.getPath('userData');
 const profilesDir = path_1.default.join(originalUserDataPath, 'profiles');
@@ -120,62 +164,87 @@ const createWindow = (isIncognito = false) => {
     // Open the DevTools.
     // mainWindow.webContents.openDevTools();
 };
-electron_1.app.on('ready', () => {
-    // Global User-Agent spoofing for both default and incognito sessions
-    const applyUASpoofing = (ses) => {
-        ses.setUserAgent(FIREFOX_UA);
-        ses.webRequest.onBeforeSendHeaders((details, callback) => {
-            details.requestHeaders['User-Agent'] = FIREFOX_UA;
-            callback({ cancel: false, requestHeaders: details.requestHeaders });
-        });
-    };
-    applyUASpoofing(electron_1.session.defaultSession);
-    applyUASpoofing(electron_1.session.fromPartition('incognito'));
-    // Ensure any other sessions (like profile partitions) also get the spoofing
-    electron_1.app.on('session-created', (ses) => {
-        applyUASpoofing(ses);
+const applyUASpoofing = (ses) => {
+    ses.setUserAgent(FIREFOX_UA);
+    ses.webRequest.onBeforeSendHeaders((details, callback) => {
+        details.requestHeaders['User-Agent'] = FIREFOX_UA;
+        callback({ cancel: false, requestHeaders: details.requestHeaders });
     });
-    createWindow(isIncognitoProcess);
+};
+const applyAdBlocking = (ses) => {
+    // Check if store is ready
+    if (!store) {
+        initElectronStore().then(() => applyAdBlocking(ses));
+        return;
+    }
+    const settings = store.get('settings');
+    if (settings?.adBlockEnabled) {
+        enableAdBlocker(ses);
+    }
+};
+const setupOptimizations = (ses) => {
+    applyUASpoofing(ses);
+    applyAdBlocking(ses);
+    // Inject Performance Optimization Script
+    const optimizationPath = path_1.default.join(electron_1.app.getAppPath(), 'public', 'optimization-inject.js');
+    const currentPreloads = ses.getPreloads();
+    if (!currentPreloads.includes(optimizationPath)) {
+        ses.setPreloads([...currentPreloads, optimizationPath]);
+    }
+};
+// Initialize app then setup store and optimizations
+electron_1.app.whenReady().then(async () => {
+    await initElectronStore();
+    const { session, globalShortcut } = require('electron');
+    setupOptimizations(session.defaultSession);
+    // Use a persistent partition for incognito to allow caching within the session
+    setupOptimizations(session.fromPartition('incognito'));
+    // Ensure any other sessions (like profile partitions) also get the spoofing and blocking
+    electron_1.app.on('session-created', (ses) => {
+        setupOptimizations(ses);
+    });
     // Register Incognito Shortcut
-    const { globalShortcut } = require('electron');
     globalShortcut.register('CommandOrControl+Shift+N', () => {
         launchIncognito();
     });
-    // Apply protections to every new web content (including webviews)
-    electron_1.app.on('web-contents-created', (event, contents) => {
-        const forbidden = [
-            'contacts.google.com/widget',
-            'passiveSignin',
-            'accounts.google.com/ServiceLogin'
-        ];
-        const blockRedirect = (event, url) => {
-            if (forbidden.some(link => url.includes(link))) {
-                console.log(`[Main] Blocked background redirect to: ${url}`);
-                event.preventDefault();
-            }
-        };
-        // Main Navigation Filter
-        contents.on('will-navigate', (event, url) => blockRedirect(event, url));
-        // Frame Navigation Filter: Prevent iframes from redirecting the main window
-        contents.on('will-frame-navigate', (event, url, isMainFrame) => {
-            if (!isMainFrame) {
-                // If it's a subframe trying to navigate to a forbidden URL, block it
-                blockRedirect(event, url);
-            }
-        });
-        // Window Open Handler: Allow specific download-related windows
-        contents.setWindowOpenHandler(({ url }) => {
-            if (url.includes('drive.google.com/download') || url.includes('doc-')) {
-                return { action: 'allow' };
-            }
-            return { action: 'deny' };
-        });
+    setupDownloadManager(session.defaultSession);
+    createWindow(isIncognitoProcess);
+});
+// Apply protections to every new web content (including webviews)
+electron_1.app.on('web-contents-created', (event, contents) => {
+    const forbidden = [
+        'contacts.google.com/widget',
+        'passiveSignin',
+        'accounts.google.com/ServiceLogin'
+    ];
+    const blockRedirect = (event, url) => {
+        if (forbidden.some(link => url.includes(link))) {
+            console.log(`[Main] Blocked background redirect to: ${url}`);
+            event.preventDefault();
+        }
+    };
+    // Main Navigation Filter
+    contents.on('will-navigate', (event, url) => blockRedirect(event, url));
+    // Frame Navigation Filter: Prevent iframes from redirecting the main window
+    contents.on('will-frame-navigate', (event, url, isMainFrame) => {
+        if (!isMainFrame) {
+            // If it's a subframe trying to navigate to a forbidden URL, block it
+            blockRedirect(event, url);
+        }
     });
-    // --- Download Manager ---
-    // --- Download Manager ---
-    const downloadItems = new Map();
-    const saveAsPaths = new Map(); // URL -> FilePath
-    electron_1.session.defaultSession.on('will-download', async (event, item, webContents) => {
+    // Window Open Handler: Allow specific download-related windows
+    contents.setWindowOpenHandler(({ url }) => {
+        if (url.includes('drive.google.com/download') || url.includes('doc-')) {
+            return { action: 'allow' };
+        }
+        return { action: 'deny' };
+    });
+});
+// --- Download Manager ---
+const downloadItems = new Map();
+const saveAsPaths = new Map(); // URL -> FilePath
+const setupDownloadManager = (ses) => {
+    ses.on('will-download', async (event, item, webContents) => {
         // Try to get filename, fallback to parsing URL if empty
         let fileName = item.getFilename();
         const url = item.getURL();
@@ -290,193 +359,197 @@ electron_1.app.on('ready', () => {
             item.setSavePath(filePath);
         }
     });
-    electron_1.ipcMain.on('download-control', (event, { id, action }) => {
-        const item = downloadItems.get(id);
-        if (!item)
-            return;
-        if (action === 'pause' && !item.isPaused())
-            item.pause();
-        if (action === 'resume' && item.isPaused())
-            item.resume();
-        if (action === 'cancel')
-            item.cancel();
-        // Send immediate update to sync isPaused state
-        mainWindow?.webContents.send('download-progress', {
-            id: id,
-            receivedBytes: item.getReceivedBytes(),
-            totalBytes: item.getTotalBytes(),
-            state: 'progressing', // Or item.getState()
-            isPaused: item.isPaused()
-        });
+};
+electron_1.ipcMain.on('download-control', (event, { id, action }) => {
+    const item = downloadItems.get(id);
+    if (!item)
+        return;
+    if (action === 'pause' && !item.isPaused())
+        item.pause();
+    if (action === 'resume' && item.isPaused())
+        item.resume();
+    if (action === 'cancel')
+        item.cancel();
+    // Send immediate update to sync isPaused state
+    mainWindow?.webContents.send('download-progress', {
+        id: id,
+        receivedBytes: item.getReceivedBytes(),
+        totalBytes: item.getTotalBytes(),
+        state: 'progressing', // Or item.getState()
+        isPaused: item.isPaused()
     });
-    electron_1.ipcMain.on('show-in-folder', (event, path) => {
-        electron_1.shell.showItemInFolder(path);
-    });
-    electron_1.ipcMain.on('open-file', (event, path) => {
-        electron_1.shell.openPath(path);
-    });
-    // --- IPC Handlers for Store ---
-    electron_1.ipcMain.handle('get-store-value', async (event, key) => {
-        const s = await initElectronStore();
-        return s.get(key);
-    });
-    electron_1.ipcMain.handle('set-store-value', async (event, key, value) => {
-        const s = await initElectronStore();
-        s.set(key, value);
-    });
-    electron_1.ipcMain.handle('get-preload-path', () => {
-        return path_1.default.join(__dirname, 'preload.js');
-    });
-    const launchIncognito = () => {
-        const { spawn } = require('child_process');
-        const args = process.argv.slice(1).filter(a => a !== '--incognito');
-        args.push('--incognito');
-        spawn(process.execPath, args, {
-            detached: true,
-            stdio: 'ignore'
-        }).unref();
-    };
-    electron_1.ipcMain.on('open-incognito-window', () => {
-        launchIncognito();
-    });
-    // Window Controls
-    electron_1.ipcMain.on('minimize-window', () => {
-        mainWindow?.minimize();
-    });
-    electron_1.ipcMain.on('maximize-window', () => {
-        if (mainWindow?.isMaximized()) {
-            mainWindow.unmaximize();
-        }
-        else {
-            mainWindow?.maximize();
-        }
-    });
-    electron_1.ipcMain.on('close-window', () => {
-        mainWindow?.close();
-    });
-    // Navigation IPC
-    electron_1.ipcMain.on('webview-go-back', (event) => {
-        const wc = event.sender;
-        if (wc.canGoBack()) {
-            wc.goBack();
-            mainWindow?.webContents.send('navigation-feedback', 'back');
-        }
-    });
-    electron_1.ipcMain.on('webview-go-forward', (event) => {
-        const wc = event.sender;
-        if (wc.canGoForward()) {
-            wc.goForward();
-            mainWindow?.webContents.send('navigation-feedback', 'forward');
-        }
-    });
-    // Context Menu IPC
-    electron_1.ipcMain.on('show-context-menu', (event, params) => {
-        const template = [];
-        const webContents = event.sender;
-        const win = electron_1.BrowserWindow.fromWebContents(webContents);
-        // Helper to generic create tab
-        const createTab = (url) => {
-            if (win) {
-                win.webContents.send('create-tab', { url });
-            }
-        };
-        // --- Link Context ---
-        if (params.linkURL) {
-            template.push({
-                label: 'Open Link in New Tab',
-                click: () => createTab(params.linkURL)
-            });
-            template.push({
-                label: 'Copy Link Address',
-                click: () => electron_1.clipboard.writeText(params.linkURL)
-            });
-            template.push({ type: 'separator' });
-        }
-        // --- Image Context ---
-        if (params.mediaType === 'image' && params.srcURL) {
-            template.push({
-                label: 'Open Image in New Tab',
-                click: () => createTab(`rizo://view-image?src=${encodeURIComponent(params.srcURL)}`)
-            });
-            template.push({
-                label: 'Save Image As...',
-                click: async () => {
-                    // Dialog First flow
-                    const defaultName = params.srcURL.split('/').pop()?.split('?')[0] || 'image.png';
-                    // Show dialog immediately
-                    const { filePath } = await electron_1.dialog.showSaveDialog(win || mainWindow, {
-                        defaultPath: defaultName,
-                        filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', '*'] }]
-                    });
-                    if (filePath) {
-                        // Store the decision
-                        saveAsPaths.set(params.srcURL, filePath);
-                        webContents.downloadURL(params.srcURL);
-                    }
-                }
-            });
-            template.push({
-                label: 'Copy Image',
-                click: () => {
-                    // Use integer coordinates to be safe
-                    webContents.copyImageAt(Math.floor(params.x), Math.floor(params.y));
-                }
-            });
-            template.push({
-                label: 'Copy Image Address',
-                click: () => electron_1.clipboard.writeText(params.srcURL)
-            });
-            template.push({ type: 'separator' });
-        }
-        // --- Selection Context ---
-        if (params.selectionText) {
-            template.push({
-                label: `Search Google for "${params.selectionText.length > 20 ? params.selectionText.substring(0, 20) + '...' : params.selectionText}"`,
-                click: () => createTab(`https://www.google.com/search?q=${encodeURIComponent(params.selectionText)}`)
-            });
-            template.push({ type: 'separator' });
-            template.push({ role: 'cut' });
-            template.push({ role: 'copy' });
-            template.push({ role: 'paste' });
-            template.push({ type: 'separator' });
-        }
-        // --- Generic / Page Context ---
-        // Only show "Back/Forward/Reload" if not selecting text or image to keep it clean, 
-        // OR show them always if standard browser behavior (usually they are at the top or bottom).
-        if (!params.linkURL && !params.selectionText && params.mediaType === 'none') {
-            template.push({
-                label: 'Back',
-                enabled: params.editFlags?.canGoBack,
-                click: () => webContents.send('execute-browser-backward')
-            });
-            template.push({
-                label: 'Forward',
-                enabled: params.editFlags?.canGoForward,
-                click: () => webContents.send('execute-browser-forward')
-            });
-            template.push({
-                label: 'Reload',
-                click: () => webContents.send('reload')
-            });
-            template.push({ type: 'separator' });
-            template.push({
-                label: 'Print...',
-                click: () => webContents.print()
-            });
-            template.push({ type: 'separator' });
-        }
-        // --- Developer ---
-        template.push({
-            label: 'Inspect Element',
-            click: () => {
-                webContents.inspectElement(params.x, params.y);
-            }
-        });
-        const menu = electron_1.Menu.buildFromTemplate(template);
+});
+electron_1.ipcMain.on('show-in-folder', (event, path) => {
+    electron_1.shell.showItemInFolder(path);
+});
+electron_1.ipcMain.on('open-file', (event, path) => {
+    electron_1.shell.openPath(path);
+});
+// --- IPC Handlers for Store ---
+electron_1.ipcMain.handle('get-store-value', async (event, key) => {
+    const s = await initElectronStore();
+    return s.get(key);
+});
+electron_1.ipcMain.handle('set-store-value', async (event, key, value) => {
+    const s = await initElectronStore();
+    s.set(key, value);
+});
+electron_1.ipcMain.handle('get-extension-storage', async (event, key) => {
+    const s = await initElectronStore();
+    return s.get(key);
+});
+electron_1.ipcMain.handle('get-preload-path', () => {
+    return path_1.default.join(__dirname, 'preload.js');
+});
+const launchIncognito = () => {
+    const { spawn } = require('child_process');
+    const args = process.argv.slice(1).filter(a => a !== '--incognito');
+    args.push('--incognito');
+    spawn(process.execPath, args, {
+        detached: true,
+        stdio: 'ignore'
+    }).unref();
+};
+electron_1.ipcMain.on('open-incognito-window', () => {
+    launchIncognito();
+});
+// Window Controls
+electron_1.ipcMain.on('minimize-window', () => {
+    mainWindow?.minimize();
+});
+electron_1.ipcMain.on('maximize-window', () => {
+    if (mainWindow?.isMaximized()) {
+        mainWindow.unmaximize();
+    }
+    else {
+        mainWindow?.maximize();
+    }
+});
+electron_1.ipcMain.on('close-window', () => {
+    mainWindow?.close();
+});
+// Navigation IPC
+electron_1.ipcMain.on('webview-go-back', (event) => {
+    const wc = event.sender;
+    if (wc.canGoBack()) {
+        wc.goBack();
+        mainWindow?.webContents.send('navigation-feedback', 'back');
+    }
+});
+electron_1.ipcMain.on('webview-go-forward', (event) => {
+    const wc = event.sender;
+    if (wc.canGoForward()) {
+        wc.goForward();
+        mainWindow?.webContents.send('navigation-feedback', 'forward');
+    }
+});
+// Context Menu IPC
+electron_1.ipcMain.on('show-context-menu', (event, params) => {
+    const template = [];
+    const webContents = event.sender;
+    const win = electron_1.BrowserWindow.fromWebContents(webContents);
+    // Helper to generic create tab
+    const createTab = (url) => {
         if (win) {
-            menu.popup({ window: win });
+            win.webContents.send('create-tab', { url });
+        }
+    };
+    // --- Link Context ---
+    if (params.linkURL) {
+        template.push({
+            label: 'Open Link in New Tab',
+            click: () => createTab(params.linkURL)
+        });
+        template.push({
+            label: 'Copy Link Address',
+            click: () => electron_1.clipboard.writeText(params.linkURL)
+        });
+        template.push({ type: 'separator' });
+    }
+    // --- Image Context ---
+    if (params.mediaType === 'image' && params.srcURL) {
+        template.push({
+            label: 'Open Image in New Tab',
+            click: () => createTab(`rizo://view-image?src=${encodeURIComponent(params.srcURL)}`)
+        });
+        template.push({
+            label: 'Save Image As...',
+            click: async () => {
+                // Dialog First flow
+                const defaultName = params.srcURL.split('/').pop()?.split('?')[0] || 'image.png';
+                // Show dialog immediately
+                const { filePath } = await electron_1.dialog.showSaveDialog(win || mainWindow, {
+                    defaultPath: defaultName,
+                    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', '*'] }]
+                });
+                if (filePath) {
+                    // Store the decision
+                    saveAsPaths.set(params.srcURL, filePath);
+                    webContents.downloadURL(params.srcURL);
+                }
+            }
+        });
+        template.push({
+            label: 'Copy Image',
+            click: () => {
+                // Use integer coordinates to be safe
+                webContents.copyImageAt(Math.floor(params.x), Math.floor(params.y));
+            }
+        });
+        template.push({
+            label: 'Copy Image Address',
+            click: () => electron_1.clipboard.writeText(params.srcURL)
+        });
+        template.push({ type: 'separator' });
+    }
+    // --- Selection Context ---
+    if (params.selectionText) {
+        template.push({
+            label: `Search Google for "${params.selectionText.length > 20 ? params.selectionText.substring(0, 20) + '...' : params.selectionText}"`,
+            click: () => createTab(`https://www.google.com/search?q=${encodeURIComponent(params.selectionText)}`)
+        });
+        template.push({ type: 'separator' });
+        template.push({ role: 'cut' });
+        template.push({ role: 'copy' });
+        template.push({ role: 'paste' });
+        template.push({ type: 'separator' });
+    }
+    // --- Generic / Page Context ---
+    // Only show "Back/Forward/Reload" if not selecting text or image to keep it clean, 
+    // OR show them always if standard browser behavior (usually they are at the top or bottom).
+    if (!params.linkURL && !params.selectionText && params.mediaType === 'none') {
+        template.push({
+            label: 'Back',
+            enabled: params.editFlags?.canGoBack,
+            click: () => webContents.send('execute-browser-backward')
+        });
+        template.push({
+            label: 'Forward',
+            enabled: params.editFlags?.canGoForward,
+            click: () => webContents.send('execute-browser-forward')
+        });
+        template.push({
+            label: 'Reload',
+            click: () => webContents.send('reload')
+        });
+        template.push({ type: 'separator' });
+        template.push({
+            label: 'Print...',
+            click: () => webContents.print()
+        });
+        template.push({ type: 'separator' });
+    }
+    // --- Developer ---
+    template.push({
+        label: 'Inspect Element',
+        click: () => {
+            webContents.inspectElement(params.x, params.y);
         }
     });
+    const menu = electron_1.Menu.buildFromTemplate(template);
+    if (win) {
+        menu.popup({ window: win });
+    }
 });
 electron_1.ipcMain.on('open-dev-tools', (event) => {
     event.sender.openDevTools();

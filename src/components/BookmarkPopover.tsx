@@ -103,22 +103,6 @@ export const BookmarkPopover: React.FC<BookmarkPopoverProps> = ({ url, title, fa
 
                 <div className="flex flex-col gap-2 pt-1">
                     <button
-                        onClick={() => setInBookmarks(!inBookmarks)}
-                        className="group flex items-center gap-3 w-full p-2.5 rounded-xl border border-transparent hover:bg-white/5 transition-all text-left"
-                    >
-                        <div className={cn(
-                            "w-5 h-5 rounded-md border-2 transition-all flex items-center justify-center",
-                            inBookmarks ? "bg-primary border-primary" : "border-muted-foreground/30 group-hover:border-primary/50"
-                        )}>
-                            {inBookmarks && <Check size={12} className="text-white" />}
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-xs font-bold">Show in Bookmarks Bar</span>
-                            <span className="text-[10px] text-muted-foreground">Appears below the address bar</span>
-                        </div>
-                    </button>
-
-                    <button
                         onClick={() => setInFavorites(!inFavorites)}
                         className="group flex items-center gap-3 w-full p-2.5 rounded-xl border border-transparent hover:bg-white/5 transition-all text-left"
                     >

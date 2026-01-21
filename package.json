@@ -14,8 +14,8 @@
   "dependencies": {
     "@types/uuid": "^10.0.0",
     "clsx": "^2.1.1",
-    "electron-store": "^11.0.2",
     "electron-squirrel-startup": "^1.0.1",
+    "electron-store": "^11.0.2",
     "framer-motion": "^12.26.2",
     "lucide-react": "^0.562.0",
     "react": "^19.2.0",

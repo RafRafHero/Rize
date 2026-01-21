@@ -12,7 +12,7 @@ interface NewTabProps {
 }
 
 export const NewTab: React.FC<NewTabProps> = ({ tabId }) => {
-    const { favorites, removeFavorite, addFavorite, settings, updateTab, siteHistory, updateSettings } = useStore();
+    const { favorites, removeFavorite, addFavorite, settings, updateTab, siteHistory, updateSettings, addBookmark } = useStore();
     const config = settings.homePageConfig;
 
     // Local state for layout during interaction to prevent heavy store/disk updates freezing UI
@@ -111,14 +111,21 @@ export const NewTab: React.FC<NewTabProps> = ({ tabId }) => {
     const handleAddShortcut = () => {
         if (newUrl && newTitle) {
             const formattedUrl = formatUrl(newUrl, 'google');
-            const faviconUrl = `https://www.google.com/s2/favicons?domain=${formattedUrl}&sz=128`;
+            const faviconUrl = `https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=${formattedUrl}&size=128`;
+            const id = Date.now().toString();
 
-            addFavorite({
-                id: Date.now().toString(),
+            const shortcutData = {
+                id,
                 title: newTitle,
                 url: formattedUrl,
                 favicon: faviconUrl
-            });
+            };
+
+            addFavorite(shortcutData);
+
+            if (saveAsBookmark) {
+                addBookmark(shortcutData);
+            }
 
             setIsAdding(false);
             setNewTitle('');
@@ -492,6 +499,18 @@ export const NewTab: React.FC<NewTabProps> = ({ tabId }) => {
                                 <div className="space-y-1">
                                     <label className="text-xs font-medium text-muted-foreground">URL</label>
                                     <input value={newUrl} onChange={e => setNewUrl(e.target.value)} className="w-full p-2 rounded-lg bg-secondary border border-transparent focus:border-primary/50 outline-none" placeholder="https://example.com" />
+                                </div>
+                                <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-secondary/50 transition-colors cursor-pointer group" onClick={() => setSaveAsBookmark(!saveAsBookmark)}>
+                                    <div className={cn(
+                                        "w-5 h-5 rounded-md border-2 transition-all flex items-center justify-center shrink-0",
+                                        saveAsBookmark ? "bg-primary border-primary" : "border-muted-foreground/30 group-hover:border-primary/50"
+                                    )}>
+                                        {saveAsBookmark && <Plus size={12} className="text-white" />}
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-bold">Add to bookmarks bar</span>
+                                        <span className="text-[10px] text-muted-foreground">Appears below the address bar</span>
+                                    </div>
                                 </div>
                             </div>
                             <div className="flex justify-end gap-2 pt-2">

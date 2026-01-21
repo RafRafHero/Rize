@@ -68,7 +68,7 @@ export const Settings: React.FC = () => {
                                             <Sun size={14} /> Appearance
                                         </label>
                                         <div className="flex bg-secondary/50 p-1 rounded-xl">
-                                            {(['light', 'dark', 'system'] as const).map((t) => (
+                                            {(['light', 'dark'] as const).map((t) => (
                                                 <button
                                                     key={t}
                                                     onClick={() => updateSettings({ theme: t })}
@@ -79,7 +79,6 @@ export const Settings: React.FC = () => {
                                                 >
                                                     {t === 'light' && <Sun size={14} />}
                                                     {t === 'dark' && <Moon size={14} />}
-                                                    {t === 'system' && <Monitor size={14} />}
                                                     {t}
                                                 </button>
                                             ))}

@@ -15,6 +15,8 @@ import { GeminiPanel } from './components/GeminiPanel';
 import { HistoryPage } from './components/HistoryPage';
 import { PasswordPrompt } from './components/PasswordPrompt';
 import { GeminiIcon } from './components/GeminiIcon';
+import { GhostSearch } from './components/GhostSearch';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 function App() {
   const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword } = useStore();
@@ -166,30 +168,31 @@ function App() {
                   const isVisible = settings.isSplitScreen ? (isPrimary || isSecondary) : (tab.id === activeTabId);
 
                   return (
-                    <div
-                      key={tab.id}
-                      className={cn(
-                        "h-full relative transition-all duration-300",
-                        isVisible ? "flex" : "hidden",
-                        settings.isSplitScreen ? (isVisible ? "flex-1" : "") : "flex-1 w-full",
-                        settings.isSplitScreen && isVisible && tab.id !== activeTabId ? "opacity-70 scale-[0.99] grayscale-[0.2]" : "opacity-100 z-10",
-                        isSecondary && "border-l border-white/10"
-                      )}
-                      onMouseDown={() => {
-                        if (settings.isSplitScreen && isVisible && tab.id !== activeTabId) {
-                          setActiveTab(tab.id);
-                        }
-                      }}
-                    >
-                      <BrowserView
-                        tabId={tab.id}
-                        isActive={tab.id === activeTabId}
-                        onMount={(wv) => {
-                          if (wv) webviewRefs.current[tab.id] = wv;
-                          else delete webviewRefs.current[tab.id];
+                    <ErrorBoundary key={tab.id} name={`Tab: ${tab.title || tab.id}`}>
+                      <div
+                        className={cn(
+                          "h-full relative transition-all duration-300",
+                          isVisible ? "flex" : "hidden",
+                          settings.isSplitScreen ? (isVisible ? "flex-1" : "") : "flex-1 w-full",
+                          settings.isSplitScreen && isVisible && tab.id !== activeTabId ? "opacity-70 scale-[0.99] grayscale-[0.2]" : "opacity-100 z-10",
+                          isSecondary && "border-l border-white/10"
+                        )}
+                        onMouseDown={() => {
+                          if (settings.isSplitScreen && isVisible && tab.id !== activeTabId) {
+                            setActiveTab(tab.id);
+                          }
                         }}
-                      />
-                    </div>
+                      >
+                        <BrowserView
+                          tabId={tab.id}
+                          isActive={tab.id === activeTabId}
+                          onMount={(wv) => {
+                            if (wv) webviewRefs.current[tab.id] = wv;
+                            else delete webviewRefs.current[tab.id];
+                          }}
+                        />
+                      </div>
+                    </ErrorBoundary>
                   );
                 })}
               </div>
@@ -211,6 +214,7 @@ function App() {
       )}
       <DownloadsPage />
       <Settings />
+      <GhostSearch />
     </div>
   );
 }

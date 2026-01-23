@@ -34,6 +34,41 @@ window.addEventListener('load', async () => {
         console.error('[Preload] Autofill failed:', e);
     }
 });
+// Hardened YouTube Ad-Blocker
+if (window.location.hostname.includes('youtube.com')) {
+    // 1. Script Injection (Auto-Skip)
+    setInterval(() => {
+        const video = document.querySelector('video');
+        const adSkipButton = document.querySelector('.ytp-ad-skip-button');
+        const adInterrupting = document.querySelector('.ad-interrupting');
+        if (video) {
+            if (adInterrupting || adSkipButton) {
+                // Skips the ad by setting current time to duration
+                if (Number.isFinite(video.duration)) {
+                    video.currentTime = video.duration;
+                }
+                // Also try to click the skip button if it exists
+                adSkipButton?.click();
+            }
+        }
+        // Handle overlay ads (static images/banners)
+        const overlayAds = document.querySelectorAll('.ytp-ad-overlay-close-button');
+        overlayAds.forEach((btn) => btn.click());
+    }, 500);
+    // 2. CSS Cosmetic Surgery
+    const style = document.createElement('style');
+    style.innerHTML = `
+        .video-ads, 
+        .ytp-ad-module, 
+        .ytp-ad-overlay-container,
+        .ytp-ad-message-container,
+        #player-ads,
+        ytd-ad-slot-renderer { 
+            display: none !important; 
+        }
+    `;
+    document.head.appendChild(style);
+}
 // Password Capture Logic for Webviews
 window.addEventListener('submit', (e) => {
     try {

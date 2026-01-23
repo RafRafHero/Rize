@@ -182,9 +182,24 @@ const applyAdBlocking = (ses) => {
         enableAdBlocker(ses);
     }
 };
+const applyYouTubeNetworkBlocker = (ses) => {
+    const adPatterns = [
+        '*://*.doubleclick.net/*',
+        '*://*.googleads.g.doubleclick.net/*',
+        '*://youtube.com/get_midroll_info*',
+        '*://youtube.com/api/stats/ads*'
+    ];
+    ses.webRequest.onBeforeRequest({ urls: adPatterns }, (details, callback) => {
+        if (details.url.includes('doubleclick.net')) {
+            console.log('[AdBlock] YouTube Ad Blocked (doubleclick.net)');
+        }
+        callback({ cancel: true });
+    });
+};
 const setupOptimizations = (ses) => {
     applyUASpoofing(ses);
     applyAdBlocking(ses);
+    applyYouTubeNetworkBlocker(ses);
     // Inject Performance Optimization Script
     const optimizationPath = path_1.default.join(electron_1.app.getAppPath(), 'public', 'optimization-inject.js');
     const currentPreloads = ses.getPreloads();
@@ -206,6 +221,10 @@ electron_1.app.whenReady().then(async () => {
     // Register Incognito Shortcut
     globalShortcut.register('CommandOrControl+Shift+N', () => {
         launchIncognito();
+    });
+    // Register Ghost Search Shortcut
+    globalShortcut.register('CommandOrControl+K', () => {
+        mainWindow?.webContents.send('toggle-ghost-search');
     });
     setupDownloadManager(session.defaultSession);
     createWindow(isIncognitoProcess);
@@ -427,6 +446,14 @@ electron_1.ipcMain.on('maximize-window', () => {
 });
 electron_1.ipcMain.on('close-window', () => {
     mainWindow?.close();
+});
+electron_1.ipcMain.on('clear-cache', async (event) => {
+    const ses = event.sender.session;
+    await ses.clearCache();
+    await ses.clearStorageData({
+        storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage']
+    });
+    console.log('[Main] Cache and Storage cleared');
 });
 // Navigation IPC
 electron_1.ipcMain.on('webview-go-back', (event) => {

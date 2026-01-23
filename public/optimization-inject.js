@@ -82,21 +82,30 @@
         setupLazyLoading();
     };
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', runOptimizations);
-    } else {
+    function initObserver() {
+        const targetNode = document.body || document.documentElement;
+        if (!targetNode) {
+            // If body isn't ready, retry in 50ms
+            setTimeout(initObserver, 50);
+            return;
+        }
+
+        const observer = new MutationObserver((mutations) => {
+            runOptimizations();
+        });
+
+        observer.observe(targetNode, {
+            childList: true,
+            subtree: true
+        });
+
         runOptimizations();
+        console.log('[Rizo] Performance optimizations active.');
     }
 
-    // Observe for dynamically added elements
-    const observer = new MutationObserver((mutations) => {
-        runOptimizations();
-    });
-
-    observer.observe(document.body || document.documentElement, {
-        childList: true,
-        subtree: true
-    });
-
-    console.log('[Rizo] Performance optimizations active.');
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initObserver);
+    } else {
+        initObserver();
+    }
 })();

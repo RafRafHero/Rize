@@ -116,6 +116,9 @@ interface BrowserState {
     activeInternalPage: 'history' | 'passwords' | null;
     capturedPassword: { url: string; username: string; password: string } | null;
 
+    isGhostSearchOpen: boolean;
+    toggleGhostSearch: (open?: boolean) => void;
+
     // Tab Actions
     addTab: (url?: string) => void;
     removeTab: (id: string) => void;
@@ -220,6 +223,11 @@ export const useStore = create<BrowserState>((set, get) => ({
     isIncognito: false,
     activeProfileId: null,
     selectionMode: false,
+    isGhostSearchOpen: false,
+
+    toggleGhostSearch: (open) => set((state) => ({
+        isGhostSearchOpen: open !== undefined ? open : !state.isGhostSearchOpen
+    })),
 
     addTab: (url = '') => set((state) => {
         const newTab: Tab = {

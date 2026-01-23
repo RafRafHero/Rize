@@ -3,6 +3,8 @@ import { useStore } from '../store/useStore';
 import { cn } from '../lib/utils';
 import { NewTab } from './NewTab';
 import { ImageViewer } from './ImageViewer';
+import { safeWebViewAction } from '../lib/webview-utils';
+import { ErrorBoundary } from './ErrorBoundary';
 
 interface BrowserViewProps {
     tabId: string;
@@ -12,6 +14,7 @@ interface BrowserViewProps {
 
 export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMount }) => {
     const webviewRef = useRef<any>(null);
+    const [isReady, setIsReady] = React.useState(false);
     const { updateTab, tabs, triggerNavFeedback, addTab, recordVisit } = useStore();
 
     const tab = tabs.find(t => t.id === tabId);
@@ -57,37 +60,25 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
                 (window as any).electron?.ipcRenderer.send('show-context-menu', e.params);
             };
 
+            const handleDomReady = () => setIsReady(true);
+
             wv.addEventListener('did-start-loading', handleDidStartLoading);
             wv.addEventListener('did-stop-loading', handleDidStopLoading);
             wv.addEventListener('page-favicon-updated', handlePageFavicon);
             wv.addEventListener('did-navigate', handleDidNavigate);
+            wv.addEventListener('dom-ready', handleDomReady);
 
             const handleMouseUp = (e: any) => {
-                // Mouse buttons: 0=Left, 1=Middle, 2=Right, 3=Back, 4=Forward
                 if (e.button === 3 && wv.canGoBack()) {
-                    wv.goBack();
+                    safeWebViewAction(wv, (w) => w.goBack());
                 } else if (e.button === 4 && wv.canGoForward()) {
-                    wv.goForward();
+                    safeWebViewAction(wv, (w) => w.goForward());
                 }
             };
 
-            wv.addEventListener('did-start-loading', handleDidStartLoading);
-            wv.addEventListener('did-stop-loading', handleDidStopLoading);
-            wv.addEventListener('page-favicon-updated', handlePageFavicon);
-            wv.addEventListener('did-navigate', handleDidNavigate);
             wv.addEventListener('did-navigate-in-page', handleDidNavigate);
             wv.addEventListener('context-menu', handleContextMenu);
-            wv.addEventListener('mouseup', handleMouseUp); // This listens on the webview container element? 
-            // Note: webview tag doesn't expose 'mouseup' directly in the same way as standard DOM.
-            // We might need to listen on the container div or inject script.
-            // BUT: "mousedown" / "mouseup" on <webview> do fire for events that bubble up or specific implementation.
-            // Actually, in Electron <webview>, we might need to listen to 'ipc-message' if we inject a preload.
-            // But let's try the container div wrapper first?
-            // Actually the `BrowserView` wrapper div is where we can catch bubbles?
-            // Events inside webview don't bubble out to the embedder DOM usually.
-            // We rely on the `app-command` in main.ts generally.
-            // But let's keeping this logic here *if* we attach it to the wrapper div:
-            // The wrapper div event listener: see below in JSX return.
+            wv.addEventListener('mouseup', handleMouseUp);
 
             return () => {
                 wv.removeEventListener('did-start-loading', handleDidStartLoading);
@@ -97,6 +88,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
                 wv.removeEventListener('did-navigate-in-page', handleDidNavigate);
                 wv.removeEventListener('context-menu', handleContextMenu);
                 wv.removeEventListener('mouseup', handleMouseUp);
+                wv.removeEventListener('dom-ready', handleDomReady);
             };
         }
     }, [onMount, tabId]);
@@ -106,17 +98,17 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
         if (!isActive) return;
 
         const onGoBack = () => {
-            if (webviewRef.current?.canGoBack()) {
-                webviewRef.current.goBack();
-            }
+            safeWebViewAction(webviewRef.current, (wv) => {
+                if (wv.canGoBack()) wv.goBack();
+            });
         };
         const onGoForward = () => {
-            if (webviewRef.current?.canGoForward()) {
-                webviewRef.current.goForward();
-            }
+            safeWebViewAction(webviewRef.current, (wv) => {
+                if (wv.canGoForward()) wv.goForward();
+            });
         };
         const onReload = () => {
-            webviewRef.current?.reload();
+            safeWebViewAction(webviewRef.current, (wv) => wv.reload());
         };
 
         // Listen for open new tab requests from main process
@@ -157,10 +149,12 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
     useEffect(() => {
         const wv = webviewRef.current;
         if (wv && currentUrl) {
-            const currentWvUrl = wv.getURL();
-            if (currentWvUrl !== currentUrl && isActive) {
-                wv.loadURL(currentUrl);
-            }
+            safeWebViewAction(wv, (w) => {
+                const currentWvUrl = w.getURL();
+                if (currentWvUrl !== currentUrl && isActive) {
+                    w.loadURL(currentUrl);
+                }
+            });
         }
         // Focus webview when active
         if (isActive && wv) {
@@ -203,59 +197,69 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
     }, []);
 
     const handleContainerMouseUp = (e: React.MouseEvent) => {
-        if (!webviewRef.current) return;
-        if (e.button === 3 && webviewRef.current.canGoBack()) {
-            webviewRef.current.goBack();
-            triggerNavFeedback('back');
-        } else if (e.button === 4 && webviewRef.current.canGoForward()) {
-            webviewRef.current.goForward();
-            triggerNavFeedback('forward');
+        if (e.button === 3) {
+            safeWebViewAction(webviewRef.current, (wv) => {
+                if (wv.canGoBack()) {
+                    wv.goBack();
+                    triggerNavFeedback('back');
+                }
+            });
+        } else if (e.button === 4) {
+            safeWebViewAction(webviewRef.current, (wv) => {
+                if (wv.canGoForward()) {
+                    wv.goForward();
+                    triggerNavFeedback('forward');
+                }
+            });
         }
     };
 
+    const partition = useStore.getState().isIncognito ? 'incognito' : (useStore.getState().activeProfileId ? `persist:profile_${useStore.getState().activeProfileId}` : 'persist:default');
+    const isGhostSearchOpen = useStore.getState().isGhostSearchOpen;
+
     return (
-        <div
-            className="flex-1 relative w-full h-full bg-background"
-            onMouseUp={handleContainerMouseUp}
-        >
-            {/* Navigation Feedback Overlay */}
-            {/* Navigation Feedback Overlay - OPTIONAL: keep or remove? 
-                The user asked for "bouncy" feedback on the buttons, which is now in Navbar. 
-                I'll leave this here but it might be redundant. Let's comment it out or leave it as extra feedback.
-                Actually, let's remove the visual overlay here to focus on the Navbar buttons as requested.
-             */}
-            {/* {navFeedback && (...)} */}
+        <ErrorBoundary name={`Tab ${tabId}`}>
+            <div
+                className={cn(
+                    "flex-1 relative w-full h-full bg-background transition-all duration-300",
+                    isActive ? "visible opacity-100" : "invisible opacity-0 pointer-events-none absolute inset-0"
+                )}
+                onMouseUp={handleContainerMouseUp}
+            >
+                {/* Webview */}
+                {!isImageView && (
+                    <webview
+                        ref={webviewRef as any}
+                        key={useStore.getState().activeProfileId || 'default'}
+                        className={cn(
+                            "w-full h-full",
+                            showNewTab ? "hidden" : "flex",
+                            isGhostSearchOpen && "pointer-events-none"
+                        )}
+                        src="about:blank"
+                        preload={preloadPath ? `file://${preloadPath.replace(/\\/g, '/')}` : undefined}
+                        webpreferences="contextIsolation=yes, nodeIntegration=no"
+                        partition={partition}
+                        {...({
+                            allowpopups: "true"
+                        } as any)}
+                    />
+                )}
 
-            {/* Webview */}
-            {/* key={preloadPath} forces remount if path changes, ensures preload is applied */}
-            {/* Webview */}
-            {/* key={preloadPath} forces remount if path changes, ensures preload is applied */}
-            {!isImageView && (
-                <webview
-                    ref={webviewRef as any}
-                    key={preloadPath}
-                    className={cn("w-full h-full", showNewTab ? "hidden" : "flex")}
-                    src="about:blank"
-                    preload={preloadPath ? `file://${preloadPath.replace(/\\/g, '/')}` : undefined}
-                    webpreferences="contextIsolation=yes, nodeIntegration=no"
-                    partition={useStore.getState().isIncognito ? 'incognito' : (useStore.getState().activeProfileId ? `persist:profile_${useStore.getState().activeProfileId}` : undefined)}
-                    {...({ allowpopups: "true" } as any)}
-                />
-            )}
+                {/* Image Viewer Overlay */}
+                {isImageView && (
+                    <div className="absolute inset-0 z-20 overflow-hidden bg-background">
+                        <ImageViewer src={imageSrc} />
+                    </div>
+                )}
 
-            {/* Image Viewer Overlay */}
-            {isImageView && (
-                <div className="absolute inset-0 z-20 overflow-hidden bg-background">
-                    <ImageViewer src={imageSrc} />
-                </div>
-            )}
-
-            {/* New Tab Overlay */}
-            {showNewTab && (
-                <div className="absolute inset-0 z-20 overflow-auto">
-                    <NewTab tabId={tabId} />
-                </div>
-            )}
-        </div>
+                {/* New Tab Overlay */}
+                {showNewTab && (
+                    <div className="absolute inset-0 z-20 overflow-auto">
+                        <NewTab tabId={tabId} />
+                    </div>
+                )}
+            </div>
+        </ErrorBoundary>
     );
 };

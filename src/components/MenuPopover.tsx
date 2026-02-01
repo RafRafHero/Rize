@@ -10,7 +10,7 @@ interface MenuPopoverProps {
 }
 
 export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => {
-    const { toggleSettings, setActiveTab, settings, updateStatus } = useStore();
+    const { toggleSettings, setActiveTab, settings, hasUpdate } = useStore();
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -26,11 +26,11 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
     }, [isOpen, onClose]);
 
     const menuItems = [
-        ...(updateStatus === 'ready' ? [{
-            label: 'Update & Restart Rizo',
-            icon: RotateCw, // We need to import this or use a similar icon
+        ...(hasUpdate ? [{
+            label: 'Restart to Update Rizo',
+            icon: RotateCw,
             onClick: () => {
-                (window as any).electron?.ipcRenderer.invoke('restart-and-update');
+                (window as any).electron?.ipcRenderer.invoke('install-update');
             },
             isUpdate: true
         }] : []),

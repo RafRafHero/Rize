@@ -318,11 +318,11 @@ app.whenReady().then(async () => {
     // 1. Ask Main Window to get context from active view
     mainWindow?.webContents.send('gemini-get-context');
   });
-
   setupDownloadManager(session.defaultSession);
 
   // --- Auto Updater ---
   autoUpdater.logger = log;
+  autoUpdater.autoDownload = true;
 
   if (!process.env.VITE_DEV_SERVER_URL) {
     console.log('[Updater] Checking for updates...');
@@ -338,12 +338,16 @@ app.whenReady().then(async () => {
 
   autoUpdater.on('update-available', () => {
     console.log('[Updater] Update available');
-    mainWindow?.webContents.send('update-info', { status: 'available' });
+    mainWindow?.webContents.send('update-available', true);
   });
 
   autoUpdater.on('update-downloaded', () => {
     console.log('[Updater] Update downloaded');
-    mainWindow?.webContents.send('update-info', { status: 'ready' });
+    mainWindow?.webContents.send('update-available', true);
+  });
+
+  ipcMain.handle('install-update', () => {
+    autoUpdater.quitAndInstall();
   });
 
   ipcMain.handle('restart-and-update', () => {

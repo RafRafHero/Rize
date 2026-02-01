@@ -21,7 +21,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) => {
-    const { tabs, activeTabId, setActiveTab, addTab, updateTab, toggleSettings, addBookmark, removeBookmark, bookmarks, favorites, settings, navFeedback, updateSettings, addDownload, updateDownload, completeDownload, siteHistory, isIncognito, isGeminiPanelOpen, toggleGeminiPanel, isAdBlockerOpen, toggleAdBlocker, updateStatus } = useStore();
+    const { tabs, activeTabId, setActiveTab, addTab, updateTab, toggleSettings, addBookmark, removeBookmark, bookmarks, favorites, settings, navFeedback, updateSettings, addDownload, updateDownload, completeDownload, siteHistory, isIncognito, isGeminiPanelOpen, toggleGeminiPanel, isAdBlockerOpen, toggleAdBlocker, hasUpdate } = useStore();
 
     const activeTab = tabs.find(t => t.id === activeTabId);
     const currentUrl = activeTab?.url || '';
@@ -390,18 +390,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                             )}
                         >
                             <Menu size={18} />
-                            {updateStatus && (
-                                <motion.div
-                                    initial={{ scale: 0 }}
-                                    animate={{ scale: 1 }}
-                                    className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-secondary overflow-hidden"
-                                >
-                                    <motion.div
-                                        animate={{ opacity: [0.3, 1, 0.3] }}
-                                        transition={{ duration: 1.5, repeat: Infinity }}
-                                        className="absolute inset-0 bg-white rounded-full"
-                                    />
-                                </motion.div>
+                            {hasUpdate && (
+                                <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-secondary animate-pulse" />
                             )}
                         </motion.button>
                         <MenuPopover isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />

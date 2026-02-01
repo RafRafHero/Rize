@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
+const electron_updater_1 = require("electron-updater");
 const adblocker_electron_1 = require("@cliqz/adblocker-electron");
 const cross_fetch_1 = __importDefault(require("cross-fetch"));
 const crypto_1 = require("crypto");
@@ -267,6 +268,20 @@ electron_1.app.whenReady().then(async () => {
         mainWindow?.webContents.send('gemini-get-context');
     });
     setupDownloadManager(electron_1.session.defaultSession);
+    // --- Auto Updater ---
+    if (!process.env.VITE_DEV_SERVER_URL) {
+        electron_updater_1.autoUpdater.checkForUpdatesAndNotify();
+    }
+    electron_updater_1.autoUpdater.on('update-available', () => {
+        console.log('[Updater] Update available');
+    });
+    electron_updater_1.autoUpdater.on('update-downloaded', () => {
+        console.log('[Updater] Update downloaded');
+        mainWindow?.webContents.send('show-update-banner');
+    });
+    electron_1.ipcMain.on('restart-app', () => {
+        electron_updater_1.autoUpdater.quitAndInstall();
+    });
     createWindow(isIncognitoProcess);
 });
 // Bypass certificate trust issues for local development/antivirus interference
@@ -622,6 +637,39 @@ electron_1.ipcMain.on('show-context-menu', (event, params) => {
     if (win) {
         menu.popup({ window: win });
     }
+});
+electron_1.ipcMain.on('show-tab-context-menu', (event, { tabId, groupId, groups }) => {
+    const template = [];
+    const win = electron_1.BrowserWindow.fromWebContents(event.sender);
+    if (!win)
+        return;
+    const webContents = win.webContents;
+    template.push({
+        label: 'Add to New Group',
+        click: () => webContents.send('group-tab', { tabId, action: 'new' })
+    });
+    if (groupId) {
+        template.push({
+            label: 'Remove from Group',
+            click: () => webContents.send('ungroup-tab', { tabId })
+        });
+    }
+    if (groups && groups.length > 0) {
+        template.push({
+            label: 'Move to Group',
+            submenu: groups.map((g) => ({
+                label: g.title,
+                click: () => webContents.send('move-tab', { tabId, groupId: g.id })
+            }))
+        });
+    }
+    template.push({ type: 'separator' });
+    template.push({
+        label: 'Close Tab',
+        click: () => webContents.send('close-tab', { tabId })
+    });
+    const menu = electron_1.Menu.buildFromTemplate(template);
+    menu.popup({ window: win });
 });
 electron_1.ipcMain.on('open-dev-tools', (event) => {
     event.sender.openDevTools();

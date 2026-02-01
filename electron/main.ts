@@ -598,6 +598,7 @@ ipcMain.on('show-context-menu', (event, params) => {
   const webContents = event.sender;
   const win = BrowserWindow.fromWebContents(webContents);
 
+
   // Helper to generic create tab
   const createTab = (url: string) => {
     if (win) {
@@ -710,6 +711,45 @@ ipcMain.on('show-context-menu', (event, params) => {
   if (win) {
     menu.popup({ window: win });
   }
+});
+
+ipcMain.on('show-tab-context-menu', (event, { tabId, groupId, groups }) => {
+  const template: Array<Electron.MenuItemConstructorOptions | Electron.MenuItem> = [];
+  const win = BrowserWindow.fromWebContents(event.sender);
+
+  if (!win) return;
+  const webContents = win.webContents;
+
+  template.push({
+    label: 'Add to New Group',
+    click: () => webContents.send('group-tab', { tabId, action: 'new' })
+  });
+
+  if (groupId) {
+    template.push({
+      label: 'Remove from Group',
+      click: () => webContents.send('ungroup-tab', { tabId })
+    });
+  }
+
+  if (groups && groups.length > 0) {
+    template.push({
+      label: 'Move to Group',
+      submenu: groups.map((g: any) => ({
+        label: g.title,
+        click: () => webContents.send('move-tab', { tabId, groupId: g.id })
+      }))
+    });
+  }
+
+  template.push({ type: 'separator' });
+  template.push({
+    label: 'Close Tab',
+    click: () => webContents.send('close-tab', { tabId })
+  });
+
+  const menu = Menu.buildFromTemplate(template);
+  menu.popup({ window: win });
 });
 
 ipcMain.on('open-dev-tools', (event) => {

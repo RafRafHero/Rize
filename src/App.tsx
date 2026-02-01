@@ -21,7 +21,7 @@ import { GlassCardsOverlay } from './components/GlassCardsOverlay';
 import { OnboardingOverlay } from './components/OnboardingOverlay';
 
 function App() {
-  const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setHasUpdate } = useStore();
+  const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setShowUpdateDot } = useStore();
 
   useEffect(() => {
     const ipc = (window as any).electron?.ipcRenderer;
@@ -131,15 +131,15 @@ function App() {
 
   // Update Listener
   useEffect(() => {
-    const onUpdateInfo = (_: any, isAvailable: boolean) => {
-      setHasUpdate(isAvailable);
+    const onUpdateDetected = () => {
+      setShowUpdateDot(true);
     };
 
-    (window as any).electron?.ipcRenderer.on('update-available', onUpdateInfo);
+    (window as any).electron?.ipcRenderer.on('update-detected', onUpdateDetected);
     return () => {
-      (window as any).electron?.ipcRenderer.off('update-available', onUpdateInfo);
+      (window as any).electron?.ipcRenderer.off('update-detected', onUpdateDetected);
     };
-  }, [setHasUpdate]);
+  }, [setShowUpdateDot]);
 
   const handleReload = () => {
     const wv = webviewRefs.current[activeTabId];

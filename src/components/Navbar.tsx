@@ -21,7 +21,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) => {
-    const { tabs, activeTabId, setActiveTab, addTab, updateTab, toggleSettings, addBookmark, removeBookmark, bookmarks, favorites, settings, navFeedback, updateSettings, addDownload, updateDownload, completeDownload, siteHistory, isIncognito, isGeminiPanelOpen, toggleGeminiPanel, isAdBlockerOpen, toggleAdBlocker, hasUpdate } = useStore();
+    const { tabs, activeTabId, setActiveTab, addTab, updateTab, toggleSettings, addBookmark, removeBookmark, bookmarks, favorites, settings, navFeedback, updateSettings, addDownload, updateDownload, completeDownload, siteHistory, isIncognito, isGeminiPanelOpen, toggleGeminiPanel, isAdBlockerOpen, toggleAdBlocker, showUpdateDot } = useStore();
 
     const activeTab = tabs.find(t => t.id === activeTabId);
     const currentUrl = activeTab?.url || '';
@@ -390,8 +390,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                             )}
                         >
                             <Menu size={18} />
-                            {hasUpdate && (
-                                <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-secondary animate-pulse" />
+                            {showUpdateDot && (
+                                <div className="absolute -top-1 -right-1">
+                                    <span className="relative flex h-3 w-3">
+                                        <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600 border-2 border-secondary shadow-sm"></span>
+                                    </span>
+                                </div>
                             )}
                         </motion.button>
                         <MenuPopover isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />

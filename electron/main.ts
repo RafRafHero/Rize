@@ -323,6 +323,7 @@ app.whenReady().then(async () => {
   // --- Auto Updater ---
   autoUpdater.logger = log;
   autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
 
   if (!process.env.VITE_DEV_SERVER_URL) {
     console.log('[Updater] Checking for updates...');
@@ -338,12 +339,19 @@ app.whenReady().then(async () => {
 
   autoUpdater.on('update-available', () => {
     console.log('[Updater] Update available');
-    mainWindow?.webContents.send('update-available', true);
+    mainWindow?.webContents.send('update-detected', true);
   });
 
   autoUpdater.on('update-downloaded', () => {
     console.log('[Updater] Update downloaded');
-    mainWindow?.webContents.send('update-available', true);
+    mainWindow?.webContents.send('update-detected', true);
+  });
+
+  ipcMain.handle('apply-update', () => {
+    console.log('[Updater] Applying update via force-quit');
+    setImmediate(() => {
+      autoUpdater.quitAndInstall(false, true);
+    });
   });
 
   ipcMain.handle('install-update', () => {

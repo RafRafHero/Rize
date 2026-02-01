@@ -10,7 +10,7 @@ interface MenuPopoverProps {
 }
 
 export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => {
-    const { toggleSettings, setActiveTab, settings, hasUpdate } = useStore();
+    const { toggleSettings, setActiveTab, settings, showUpdateDot } = useStore();
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -26,11 +26,11 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
     }, [isOpen, onClose]);
 
     const menuItems = [
-        ...(hasUpdate ? [{
-            label: 'Restart to Update Rizo',
+        ...(showUpdateDot ? [{
+            label: 'New Update Ready',
             icon: RotateCw,
             onClick: () => {
-                (window as any).electron?.ipcRenderer.invoke('install-update');
+                (window as any).electron?.ipcRenderer.invoke('apply-update');
             },
             isUpdate: true
         }] : []),
@@ -124,13 +124,13 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
                                 key={item.label}
                                 onClick={item.onClick}
                                 className={cn(
-                                    "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl transition-colors",
+                                    "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl transition-all duration-300",
                                     (item as any).isUpdate
-                                        ? "bg-red-500/10 text-red-500 hover:bg-red-500/20 font-bold"
+                                        ? "bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-900/20 font-bold mb-1"
                                         : "hover:bg-secondary text-foreground"
                                 )}
                             >
-                                <item.icon size={16} className={cn((item as any).isUpdate ? "text-red-500" : "text-muted-foreground")} />
+                                <item.icon size={16} className={cn((item as any).isUpdate ? "text-white" : "text-muted-foreground")} />
                                 {item.label}
                             </button>
                         ))}

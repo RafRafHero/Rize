@@ -186,8 +186,8 @@ const createWindow = (isIncognito = false) => {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}${queryString}`);
   } else {
-    const indexPath = path.join(__dirname, '../dist/index.html');
-    mainWindow.loadURL(`file://${indexPath}${queryString}`);
+    // robust production loading
+    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: queryString });
   }
 
   // Open the DevTools.
@@ -294,6 +294,11 @@ app.whenReady().then(async () => {
   // Register Incognito Shortcut
   globalShortcut.register('CommandOrControl+Shift+N', () => {
     launchIncognito();
+  });
+
+  // Production Debug Shortcut
+  globalShortcut.register('CommandOrControl+Shift+I', () => {
+    mainWindow?.webContents.openDevTools({ mode: 'detach' });
   });
 
   // Register Ghost Search Shortcut
@@ -1131,4 +1136,12 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+ipcMain.on('start-file-drag', (event, filePath) => {
+  const iconPath = path.join(app.getAppPath(), 'public/favicon.ico');
+  event.sender.startDrag({
+    file: filePath,
+    icon: fs.existsSync(iconPath) ? iconPath : path.join(__dirname, '../public/favicon.ico'),
+  });
 });

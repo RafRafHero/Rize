@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, X, Globe, ChevronLeft, ChevronRight, Users, Minus, ChevronDown, Folder, GripVertical, Edit2 } from 'lucide-react';
 import { useStore, Tab, TabGroup } from '../store/useStore';
 import { cn } from '../lib/utils';
+import { LiquidDropZone } from './LiquidDropZone';
 import {
     DndContext,
     closestCenter,
@@ -352,6 +353,8 @@ export const Sidebar: React.FC = () => {
                     )) : null}
                 </DragOverlay>
 
+                <LiquidDropZone />
+
                 {/* Footer (Profile) */}
                 {!isCompact ? (
                     <div className="mt-auto pt-2 border-t border-white/5 w-full flex flex-col gap-1">
@@ -528,11 +531,28 @@ const SortableTabItem = ({ tab, children }: { tab: Tab, children: React.ReactNod
 // Sub-component for individual tab (Visuals only)
 const TabItem = ({ tab, isActive, isCompact, isIncognito, onClick, onClose, onContextMenu }: { tab: Tab, isActive: boolean, isCompact: boolean, isIncognito: boolean, onClick: () => void, onClose: (e: React.MouseEvent) => void, onContextMenu?: (e: React.MouseEvent) => void }) => {
     const { settings } = useStore();
+    const isFrozen = tab.isFrozen;
+    const [isThawing, setIsThawing] = useState(false);
+
+    // Handle Thaw Trigger
+    useEffect(() => {
+        if (!isFrozen && isThawing) {
+            const t = setTimeout(() => setIsThawing(false), 1000);
+            return () => clearTimeout(t);
+        }
+    }, [isFrozen, isThawing]);
+
+    const handleClick = () => {
+        if (isFrozen) {
+            setIsThawing(true);
+        }
+        onClick();
+    };
 
     return (
         <div className={cn("relative group w-full flex", isCompact ? "justify-center" : "")}>
             <div
-                onClick={onClick}
+                onClick={handleClick}
                 onAuxClick={(e) => {
                     if (e.button === 1) {
                         e.stopPropagation(); // prevent default scroll
@@ -541,36 +561,79 @@ const TabItem = ({ tab, isActive, isCompact, isIncognito, onClick, onClose, onCo
                 }}
                 onContextMenu={onContextMenu}
                 className={cn(
-                    "relative flex items-center justify-center rounded-xl cursor-pointer transition-all duration-300 w-full",
+                    "relative flex items-center justify-center rounded-xl cursor-pointer transition-all duration-500 w-full overflow-hidden",
                     isActive
                         ? (isCompact ? "bg-white/20 shadow-inner" : "bg-background border-border shadow-sm")
                         : "hover:bg-white/5",
                     isCompact ? "w-10 h-10 p-0 rounded-2xl" : "h-12 w-full px-2 gap-3 border border-transparent",
-                    isIncognito ? (isActive ? "text-white" : "text-white/60 hover:text-white") : ""
+                    isIncognito ? (isActive ? "text-white" : "text-white/60 hover:text-white") : "",
+                    isFrozen ? "border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.1)]" : ""
                 )}
             >
+                {/* Frozen Overlay & Texture */}
+                <AnimatePresence>
+                    {isFrozen && (
+                        <motion.div
+                            initial={{ opacity: 0, backdropFilter: 'blur(0px)' }}
+                            animate={{ opacity: 1, backdropFilter: 'blur(6px)' }}
+                            exit={{ opacity: 0, scale: 0.95, backdropFilter: 'blur(0px)' }}
+                            transition={{ duration: 0.8, ease: "easeOut" }}
+                            className="absolute inset-0 z-0 bg-cyan-900/20 pointer-events-none"
+                        >
+                            <motion.div
+                                initial={{ opacity: 0, scale: 1.2 }}
+                                animate={{ opacity: 0.3, scale: 1 }}
+                                transition={{ duration: 2, repeat: Infinity, repeatType: "reverse" }}
+                                className="absolute inset-0"
+                                style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23A5F3FC' fill-opacity='1' fill-rule='evenodd'%3E%3Cpath d='M0 40L40 0H20L0 20M40 40V20L20 40'/%3E%3C/g%3E%3C/svg%3E")` }}
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-cyan-400/10 to-transparent" />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Thaw Droplet Animation */}
+                {isThawing && (
+                    <motion.div
+                        initial={{ y: -10, opacity: 1, scale: 1 }}
+                        animate={{ y: 20, opacity: 0, scale: 0 }}
+                        transition={{ duration: 0.6, ease: "easeIn" }}
+                        className="absolute left-1/2 -ml-1 w-2 h-2 bg-cyan-400 rounded-full z-20 shadow-lg shadow-cyan-500/50"
+                    />
+                )}
+
                 {isActive && !isCompact && (
                     <motion.div
                         layoutId="active-tab-indicator"
-                        className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-r-full"
+                        className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-r-full z-10"
                     />
                 )}
 
                 {isActive && isCompact && (
-                    <div className="absolute -bottom-1 w-1 h-1 bg-primary rounded-full" />
+                    <div className="absolute -bottom-1 w-1 h-1 bg-primary rounded-full z-10" />
                 )}
 
-                <div className="shrink-0 flex items-center justify-center w-5 h-5 rounded overflow-hidden text-muted-foreground">
+                <div className="shrink-0 flex items-center justify-center w-5 h-5 rounded overflow-hidden text-muted-foreground z-10 relative">
+                    {/* Frozen Icon Indicator */}
+                    {isFrozen && (
+                        <motion.div
+                            initial={{ scale: 0 }} animate={{ scale: 1 }}
+                            className="absolute -top-1 -right-1 text-[8px]"
+                        >❄️</motion.div>
+                    )}
                     {tab.favicon ? (
-                        <img src={tab.favicon} alt="" className="w-full h-full object-cover" />
+                        <img src={tab.favicon} alt="" className={cn("w-full h-full object-cover transition-all", isFrozen ? "opacity-50 grayscale" : "")} />
                     ) : (
                         <Globe size={16} />
                     )}
                 </div>
 
                 {!isCompact && (
-                    <div className="flex-1 flex flex-col min-w-0">
-                        <span className="text-sm font-medium truncate text-left select-none">
+                    <div className="flex-1 flex flex-col min-w-0 z-10 relative">
+                        <span className={cn(
+                            "text-sm font-medium truncate text-left select-none transition-colors duration-500",
+                            isFrozen ? "text-[#A5F3FC] tracking-wide shadow-cyan-500/50 drop-shadow-sm font-semibold" : ""
+                        )}>
                             {tab.title || "Home Page"}
                         </span>
                     </div>
@@ -580,8 +643,9 @@ const TabItem = ({ tab, isActive, isCompact, isIncognito, onClick, onClose, onCo
                     <button
                         onClick={onClose}
                         className={cn(
-                            "p-1 rounded-md transition-opacity",
-                            isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                            "p-1 rounded-md transition-opacity z-10 relative",
+                            isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                            isFrozen ? "text-cyan-300 hover:text-cyan-100 hover:bg-cyan-900/50" : ""
                         )}
                     >
                         <X size={14} />

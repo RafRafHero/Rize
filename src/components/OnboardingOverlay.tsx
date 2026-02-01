@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStore } from '../store/useStore';
-import { Import, Check, ArrowRight, X, LayoutTemplate, Search, Ghost, Shield, Sidebar as SidebarIcon, MousePointerClick } from 'lucide-react';
+import { Import, Check, ArrowRight, X, LayoutTemplate, Search, Ghost, Shield, Sidebar as SidebarIcon, MousePointerClick, Snowflake, Timer } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export const OnboardingOverlay = () => {
-    const { firstRunCompleted, setFirstRunCompleted, addBookmark } = useStore();
+    const { firstRunCompleted, setFirstRunCompleted, addBookmark, settings, updateSettings } = useStore();
 
-    // Steps: Welcome -> Import -> Ghost -> Sidebar -> Url -> AdBlock -> GlassCards -> Finish
-    const [step, setStep] = useState<'welcome' | 'import' | 'ghost' | 'sidebar' | 'url' | 'adblock' | 'glasscards' | 'completed'>('welcome');
+    // Steps: Welcome -> Import -> CryoFreeze -> Ghost -> Sidebar -> Url -> AdBlock -> GlassCards -> Finish
+    const [step, setStep] = useState<'welcome' | 'import' | 'cryofreeze' | 'ghost' | 'sidebar' | 'url' | 'adblock' | 'glasscards' | 'completed'>('welcome');
     const [importStatus, setImportStatus] = useState<'idle' | 'importing' | 'done' | 'error'>('idle');
     const [importedCount, setImportedCount] = useState(0);
     const [spotlight, setSpotlight] = useState<{ x: number, y: number, w: number, h: number } | null>(null);
@@ -51,7 +51,7 @@ export const OnboardingOverlay = () => {
                 result.bookmarks.forEach((b: any) => addBookmark(b));
                 setImportedCount(result.bookmarks.length);
                 setImportStatus('done');
-                setTimeout(() => setStep('ghost'), 1500);
+                setTimeout(() => setStep('cryofreeze'), 1500);
             } else {
                 setImportStatus('error');
             }
@@ -205,9 +205,9 @@ export const OnboardingOverlay = () => {
                                     )}
 
                                     <div className="flex justify-between items-center mt-4">
-                                        <button onClick={() => setStep('ghost')} className="text-white/40 hover:text-white text-sm">Skip</button>
+                                        <button onClick={() => setStep('cryofreeze')} className="text-white/40 hover:text-white text-sm">Skip</button>
                                         {importStatus === 'done' && (
-                                            <button onClick={() => setStep('ghost')} className="px-6 py-2 bg-blue-500 hover:bg-blue-400 text-white rounded-full font-medium transition-all shadow-lg shadow-blue-500/25">
+                                            <button onClick={() => setStep('cryofreeze')} className="px-6 py-2 bg-blue-500 hover:bg-blue-400 text-white rounded-full font-medium transition-all shadow-lg shadow-blue-500/25">
                                                 Next
                                             </button>
                                         )}
@@ -215,7 +215,45 @@ export const OnboardingOverlay = () => {
                                 </motion.div>
                             )}
 
-                            {/* GHOST SEARCH */}
+                            {/* CRYO-FREEZE */}
+                            {step === 'cryofreeze' && (
+                                <motion.div
+                                    initial={{ scale: 0.9, opacity: 0 }}
+                                    animate={{ scale: 1, opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                    style={glassStyle}
+                                    className="p-8 max-w-md text-center"
+                                >
+                                    <div className="w-16 h-16 mx-auto bg-cyan-500/20 rounded-full flex items-center justify-center text-cyan-400 mb-6 border border-cyan-500/30">
+                                        <Snowflake size={32} />
+                                    </div>
+                                    <h2 className="text-2xl font-bold text-white mb-2">Cryo-Freeze Hibernation</h2>
+                                    <p className="text-white/70 mb-8 text-sm">
+                                        Rizo automatically "freezes" inactive tabs to save RAM. When you come back, the tab "thaws" instantly. Set your idle timer below:
+                                    </p>
+
+                                    <div className="bg-white/5 p-6 rounded-2xl border border-white/10 mb-8 space-y-4">
+                                        <div className="flex justify-between items-center text-xs font-semibold uppercase tracking-widest text-white/40">
+                                            <span className="flex items-center gap-2"><Timer size={14} /> Idle Timer</span>
+                                            <span className="text-cyan-400">{settings.cryoTimer} Minutes</span>
+                                        </div>
+                                        <input
+                                            type="range" min="1" max="60" step="1"
+                                            value={settings.cryoTimer}
+                                            onChange={(e) => updateSettings({ cryoTimer: parseInt(e.target.value) })}
+                                            className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+                                        />
+                                        <div className="flex justify-between text-[10px] text-white/30">
+                                            <span>Fast Freeze (1m)</span>
+                                            <span>Max Efficiency (60m)</span>
+                                        </div>
+                                    </div>
+
+                                    <button onClick={() => setStep('ghost')} className="w-full px-6 py-3 bg-cyan-500 hover:bg-cyan-400 text-white rounded-full font-bold shadow-lg shadow-cyan-500/20 transition-all">
+                                        Confirm & Continue
+                                    </button>
+                                </motion.div>
+                            )}
                             {step === 'ghost' && (
                                 <motion.div
                                     initial={{ scale: 0.9, opacity: 0 }}

@@ -65,6 +65,10 @@ export interface Settings {
     adBlockEnabled: boolean;
     adBlockWhitelist: string[];
     showHomeButton: boolean;
+    // Cryo-Freeze
+    cryoEnabled: boolean;
+    cryoTimer: number; // in minutes
+    liquidDropEnabled: boolean;
 }
 
 export interface Tab {
@@ -77,6 +81,9 @@ export interface Tab {
     favicon?: string;
     thumbnailUrl?: string;
     groupId?: string;
+    // Cryo-Freeze State
+    isFrozen?: boolean;
+    lastAccessed?: number;
 }
 
 export interface TabGroup {
@@ -130,11 +137,19 @@ interface BrowserState {
     isGhostSearchOpen: boolean;
     toggleGhostSearch: (open?: boolean) => void;
 
+    // Liquid Drop Zone
+    droppedFiles: { path: string; name: string; type: string }[];
+    addDroppedFile: (file: { path: string; name: string; type: string }) => void;
+    clearDroppedFiles: () => void;
+    removeDroppedFile: (path: string) => void;
+
     // Tab Actions
     addTab: (url?: string) => void;
     removeTab: (id: string) => void;
     setActiveTab: (id: string) => void;
     updateTab: (id: string, data: Partial<Tab>) => void;
+    freezeTab: (id: string) => void;
+    unfreezeTab: (id: string) => void;
 
     // Group Actions
     createGroup: (title: string, color: string) => string;
@@ -238,7 +253,10 @@ export const useStore = create<BrowserState>((set, get) => ({
         neverSavePasswords: [],
         adBlockEnabled: true,
         adBlockWhitelist: [],
-        showHomeButton: false
+        showHomeButton: false,
+        cryoEnabled: true,
+        cryoTimer: 10,
+        liquidDropEnabled: true,
     },
     settingsSection: 'general',
     isDownloadsOpen: false,
@@ -256,6 +274,16 @@ export const useStore = create<BrowserState>((set, get) => ({
     selectionMode: false,
     isGhostSearchOpen: false,
     isGlassCardsOverviewOpen: false,
+
+    // Liquid Drop Zone
+    droppedFiles: [],
+    addDroppedFile: (file) => set((state) => ({
+        droppedFiles: [...state.droppedFiles.filter(f => f.path !== file.path), file]
+    })),
+    clearDroppedFiles: () => set({ droppedFiles: [] }),
+    removeDroppedFile: (path) => set((state) => ({
+        droppedFiles: state.droppedFiles.filter(f => f.path !== path)
+    })),
 
     toggleGlassCards: (open) => set((state) => ({
         isGlassCardsOverviewOpen: open !== undefined ? open : !state.isGlassCardsOverviewOpen
@@ -306,6 +334,14 @@ export const useStore = create<BrowserState>((set, get) => ({
 
     updateTab: (id, data) => set((state) => ({
         tabs: state.tabs.map(t => t.id === id ? { ...t, ...data } : t)
+    })),
+
+    freezeTab: (id) => set((state) => ({
+        tabs: state.tabs.map((t) => (t.id === id ? { ...t, isFrozen: true, isLoading: false } : t)),
+    })),
+
+    unfreezeTab: (id) => set((state) => ({
+        tabs: state.tabs.map((t) => (t.id === id ? { ...t, isFrozen: false, lastAccessed: Date.now() } : t)),
     })),
 
     createGroup: (title, color) => {

@@ -175,8 +175,8 @@ const createWindow = (isIncognito = false) => {
         mainWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}${queryString}`);
     }
     else {
-        const indexPath = path_1.default.join(__dirname, '../dist/index.html');
-        mainWindow.loadURL(`file://${indexPath}${queryString}`);
+        // robust production loading
+        mainWindow.loadFile(path_1.default.join(__dirname, '../dist/index.html'), { search: queryString });
     }
     // Open the DevTools.
     // mainWindow.webContents.openDevTools();
@@ -219,12 +219,30 @@ const setupOptimizations = (ses) => {
     applyAdBlocking(ses);
     applyYouTubeNetworkBlocker(ses);
     // Inject Performance Optimization Script
-    const optimizationPath = path_1.default.join(electron_1.app.getAppPath(), 'public', 'optimization-inject.js');
-    ses.registerPreloadScript({
-        id: 'performance-optimizations',
-        type: 'frame',
-        filePath: optimizationPath
-    });
+    let optimizationPath = '';
+    if (process.env.VITE_DEV_SERVER_URL) {
+        optimizationPath = path_1.default.join(electron_1.app.getAppPath(), 'public', 'optimization-inject.js');
+    }
+    else {
+        optimizationPath = path_1.default.join(process.resourcesPath, 'app.asar', 'public', 'optimization-inject.js');
+        // Alternative valid path if app.asar is root of resources in some configs:
+        // optimizationPath = path.join(__dirname, '../public/optimization-inject.js');
+        // Let's use a more robust check or standard electron-builder structure
+        // Usually, __dirname in main process (dist-electron/main.js) -> public is one level up if copied
+        // But since we added "public/**/*" to files, it should be at root of app.asar/public
+        optimizationPath = path_1.default.join(__dirname, '../public/optimization-inject.js');
+    }
+    // Verify file exists before registering to avoid crash
+    if (fs_1.default.existsSync(optimizationPath)) {
+        ses.registerPreloadScript({
+            id: 'performance-optimizations',
+            type: 'frame',
+            filePath: optimizationPath
+        });
+    }
+    else {
+        console.warn(`[Main] Optimization script not found at ${optimizationPath}`);
+    }
 };
 // Initialize app then setup store and optimizations
 electron_1.app.whenReady().then(async () => {
@@ -252,6 +270,10 @@ electron_1.app.whenReady().then(async () => {
     electron_1.globalShortcut.register('CommandOrControl+Shift+N', () => {
         launchIncognito();
     });
+    // Production Debug Shortcut
+    electron_1.globalShortcut.register('CommandOrControl+Shift+I', () => {
+        mainWindow?.webContents.openDevTools({ mode: 'detach' });
+    });
     // Register Ghost Search Shortcut
     const searchRegistered = electron_1.globalShortcut.register('CommandOrControl+K', () => {
         mainWindow?.webContents.send('toggle-ghost-search');
@@ -270,7 +292,11 @@ electron_1.app.whenReady().then(async () => {
     setupDownloadManager(electron_1.session.defaultSession);
     // --- Auto Updater ---
     if (!process.env.VITE_DEV_SERVER_URL) {
+        console.log('[Updater] Checking for updates...');
         electron_updater_1.autoUpdater.checkForUpdatesAndNotify();
+    }
+    else {
+        console.log('[Updater] Skipping update check in dev mode');
     }
     electron_updater_1.autoUpdater.on('update-available', () => {
         console.log('[Updater] Update available');
@@ -1022,5 +1048,12 @@ electron_1.app.on('activate', () => {
     if (electron_1.BrowserWindow.getAllWindows().length === 0) {
         createWindow();
     }
+});
+electron_1.ipcMain.on('start-file-drag', (event, filePath) => {
+    const iconPath = path_1.default.join(electron_1.app.getAppPath(), 'public/favicon.ico');
+    event.sender.startDrag({
+        file: filePath,
+        icon: fs_1.default.existsSync(iconPath) ? iconPath : path_1.default.join(__dirname, '../public/favicon.ico'),
+    });
 });
 //# sourceMappingURL=main.js.map

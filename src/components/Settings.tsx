@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/useStore';
-import { Monitor, Moon, Sun, Search, Book, Trash2, Check, Sparkles } from 'lucide-react';
+import { Monitor, Moon, Sun, Search, Book, Trash2, Check, Sparkles, Droplets } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export const Settings: React.FC = () => {
@@ -81,6 +81,63 @@ export const Settings: React.FC = () => {
 
                             <div className="h-px bg-border/40 ml-7" />
 
+                            {/* Performance Section */}
+                            <section className="space-y-4">
+                                <div className="flex flex-col">
+                                    <h3 className="text-base font-semibold flex items-center gap-2">
+                                        <Sparkles size={18} className="text-primary" /> Performance & Memory
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground ml-7">Manage browser resource usage</p>
+                                </div>
+
+                                <div className="ml-7 space-y-4">
+                                    <div className="p-4 rounded-xl border border-border/40 bg-secondary/5 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-medium flex items-center gap-2">
+                                                    Cryo-Freeze Hibernation <span className="text-[10px] bg-cyan-500/10 text-cyan-500 px-2 py-0.5 rounded-full border border-cyan-500/20">NEW</span>
+                                                </span>
+                                                <span className="text-[10px] text-muted-foreground">Automatically freeze inactive tabs to save RAM</span>
+                                            </div>
+                                            <button
+                                                onClick={() => updateSettings({ cryoEnabled: !settings.cryoEnabled })}
+                                                className={cn(
+                                                    "w-12 h-6 rounded-full transition-colors relative",
+                                                    settings.cryoEnabled ? "bg-cyan-500" : "bg-secondary"
+                                                )}
+                                            >
+                                                <div className={cn(
+                                                    "absolute w-4 h-4 bg-white rounded-full top-1 transition-all shadow-sm",
+                                                    settings.cryoEnabled ? "left-7" : "left-1"
+                                                )} />
+                                            </button>
+                                        </div>
+
+                                        {settings.cryoEnabled && (
+                                            <motion.div
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: 'auto', opacity: 1 }}
+                                                className="pt-4 border-t border-border/10 overflow-hidden"
+                                            >
+                                                <div className="space-y-3">
+                                                    <div className="flex justify-between text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                                                        <span>Freeze Timer</span>
+                                                        <span className="text-cyan-500">{settings.cryoTimer} Minutes</span>
+                                                    </div>
+                                                    <input
+                                                        type="range" min="1" max="60" step="1"
+                                                        value={settings.cryoTimer}
+                                                        onChange={(e) => updateSettings({ cryoTimer: parseInt(e.target.value) })}
+                                                        className="w-full h-1 bg-secondary rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                                                    />
+                                                    <p className="text-[10px] text-muted-foreground">Tabs inactive for this duration will be frozen.</p>
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </div>
+                                </div>
+                            </section>
+
                         </div>
                     ) : activeSection === 'appearance' ? (
                         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -151,6 +208,29 @@ export const Settings: React.FC = () => {
                                             settings.showHomeButton ? "left-7" : "left-1"
                                         )} />
                                     </button>
+                                </div>
+
+                                <div className="ml-7 space-y-4">
+                                    <div className="flex items-center justify-between p-4 rounded-xl border border-border/40 bg-secondary/5">
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium flex items-center gap-2">
+                                                Liquid Drop Zone <span className="text-[10px] bg-cyan-500/10 text-cyan-500 px-2 py-0.5 rounded-full border border-cyan-500/20 uppercase tracking-widest font-bold">1.3.0</span>
+                                            </span>
+                                            <span className="text-[10px] text-muted-foreground">Persistent file sharing zone at the bottom of the sidebar</span>
+                                        </div>
+                                        <button
+                                            onClick={() => updateSettings({ liquidDropEnabled: !settings.liquidDropEnabled })}
+                                            className={cn(
+                                                "w-12 h-6 rounded-full transition-colors relative",
+                                                settings.liquidDropEnabled ? "bg-cyan-500" : "bg-secondary"
+                                            )}
+                                        >
+                                            <div className={cn(
+                                                "absolute w-4 h-4 bg-white rounded-full top-1 transition-all shadow-sm",
+                                                settings.liquidDropEnabled ? "left-7" : "left-1"
+                                            )} />
+                                        </button>
+                                    </div>
                                 </div>
                             </section>
 

@@ -8,9 +8,10 @@
     "build": "tsc -p electron/tsconfig.json && vite build && electron-builder",
     "build:win": "tsc -p electron/tsconfig.json && vite build && electron-builder --windows nsis",
     "preview": "vite preview",
-    "publish-always": "electron-builder --win --publish always
+    "publish-always": "electron-builder --win --publish always"
   },
   "description": "Rizo Browser",
+  "repository": "https://github.com/RafRafHero/Rize",
   "author": "Rizo Team",
   "dependencies": {
     "@cliqz/adblocker-electron": "^1.34.0",
@@ -20,6 +21,7 @@
     "cross-fetch": "^4.1.0",
     "electron-squirrel-startup": "^1.0.1",
     "electron-store": "^11.0.2",
+    "electron-updater": "^6.7.3",
     "framer-motion": "^12.26.2",
     "lucide-react": "^0.562.0",
     "react": "^19.2.0",
@@ -54,6 +56,13 @@
   },
   "build": {
     "appId": "com.rizobrowser.app",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "RafRafHero",
+        "repo": "https://github.com/RafRafHero/Rize"
+      }
+    ],
     "productName": "Rizo",
     "artifactName": "Rizo Setup ${version}.${ext}",
     "directories": {

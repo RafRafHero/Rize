@@ -19,6 +19,7 @@ import { GhostSearch } from './components/GhostSearch';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { GlassCardsOverlay } from './components/GlassCardsOverlay';
 import { OnboardingOverlay } from './components/OnboardingOverlay';
+import { UpdateBanner } from './components/UpdateBanner';
 
 function App() {
   const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen } = useStore();
@@ -271,6 +272,7 @@ function App() {
       <GhostSearch />
       <GlassCardsOverlay />
       <OnboardingOverlay />
+      <UpdateBanner />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, screen, Menu, clipboard, session, shell, dialog, net, safeStorage, globalShortcut } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { ElectronBlocker } from '@cliqz/adblocker-electron';
 import fetch from 'cross-fetch';
 import { randomUUID } from 'crypto';
@@ -295,6 +296,24 @@ app.whenReady().then(async () => {
   });
 
   setupDownloadManager(session.defaultSession);
+
+  // --- Auto Updater ---
+  if (!process.env.VITE_DEV_SERVER_URL) {
+    autoUpdater.checkForUpdatesAndNotify();
+  }
+
+  autoUpdater.on('update-available', () => {
+    console.log('[Updater] Update available');
+  });
+
+  autoUpdater.on('update-downloaded', () => {
+    console.log('[Updater] Update downloaded');
+    mainWindow?.webContents.send('show-update-banner');
+  });
+
+  ipcMain.on('restart-app', () => {
+    autoUpdater.quitAndInstall();
+  });
 
   createWindow(isIncognitoProcess);
 });

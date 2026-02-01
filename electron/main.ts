@@ -238,12 +238,30 @@ const setupOptimizations = (ses: Electron.Session) => {
   applyYouTubeNetworkBlocker(ses);
 
   // Inject Performance Optimization Script
-  const optimizationPath = path.join(app.getAppPath(), 'public', 'optimization-inject.js');
-  ses.registerPreloadScript({
-    id: 'performance-optimizations',
-    type: 'frame',
-    filePath: optimizationPath
-  });
+  let optimizationPath = '';
+  if (process.env.VITE_DEV_SERVER_URL) {
+    optimizationPath = path.join(app.getAppPath(), 'public', 'optimization-inject.js');
+  } else {
+    optimizationPath = path.join(process.resourcesPath, 'app.asar', 'public', 'optimization-inject.js');
+    // Alternative valid path if app.asar is root of resources in some configs:
+    // optimizationPath = path.join(__dirname, '../public/optimization-inject.js');
+
+    // Let's use a more robust check or standard electron-builder structure
+    // Usually, __dirname in main process (dist-electron/main.js) -> public is one level up if copied
+    // But since we added "public/**/*" to files, it should be at root of app.asar/public
+    optimizationPath = path.join(__dirname, '../public/optimization-inject.js');
+  }
+
+  // Verify file exists before registering to avoid crash
+  if (fs.existsSync(optimizationPath)) {
+    ses.registerPreloadScript({
+      id: 'performance-optimizations',
+      type: 'frame',
+      filePath: optimizationPath
+    });
+  } else {
+    console.warn(`[Main] Optimization script not found at ${optimizationPath}`);
+  }
 };
 
 // Initialize app then setup store and optimizations
@@ -299,7 +317,10 @@ app.whenReady().then(async () => {
 
   // --- Auto Updater ---
   if (!process.env.VITE_DEV_SERVER_URL) {
+    console.log('[Updater] Checking for updates...');
     autoUpdater.checkForUpdatesAndNotify();
+  } else {
+    console.log('[Updater] Skipping update check in dev mode');
   }
 
   autoUpdater.on('update-available', () => {

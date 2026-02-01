@@ -59,6 +59,12 @@
   },
   "build": {
     "appId": "com.rizobrowser.app",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "public/**/*",
+      "package.json"
+    ],
     "publish": [
       {
         "provider": "github",
@@ -72,10 +78,6 @@
       "output": "dist",
       "buildResources": "build"
     },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*"
-    ],
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico",

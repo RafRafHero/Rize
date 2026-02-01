@@ -136,6 +136,8 @@ if (isIncognitoProcess) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+export { mainWindow }; // Ensure it's exported for auto-updater
+
 
 const createWindow = (isIncognito = false) => {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -188,7 +190,8 @@ const createWindow = (isIncognito = false) => {
     mainWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}${queryString}`);
   } else {
     // robust production loading
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'), { search: queryString });
+    const indexPath = path.join(__dirname, '../dist/index.html');
+    mainWindow.loadFile(indexPath, { search: queryString });
   }
 
   // Open the DevTools.
@@ -337,14 +340,20 @@ app.whenReady().then(async () => {
     console.log('[Updater] Skipping update check in dev mode');
   }
 
-  autoUpdater.on('update-available', () => {
-    console.log('[Updater] Update available');
-    mainWindow?.webContents.send('update-detected', true);
+  autoUpdater.on('update-available', (info) => {
+    console.log('[Updater] Update available:', info.version);
+    mainWindow?.webContents.send('update-available', {
+      available: true,
+      version: info.version
+    });
   });
 
-  autoUpdater.on('update-downloaded', () => {
-    console.log('[Updater] Update downloaded');
-    mainWindow?.webContents.send('update-detected', true);
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Updater] Update downloaded:', info.version);
+    mainWindow?.webContents.send('update-available', {
+      available: true,
+      version: info.version
+    });
   });
 
   ipcMain.handle('apply-update', () => {
@@ -354,8 +363,13 @@ app.whenReady().then(async () => {
     });
   });
 
-  ipcMain.handle('install-update', () => {
-    autoUpdater.quitAndInstall();
+  ipcMain.handle('restart-and-update', () => {
+    console.log('[Updater] Restart and update triggered');
+    autoUpdater.quitAndInstall(false, true);
+  });
+
+  ipcMain.handle('get-app-version', () => {
+    return app.getVersion();
   });
 
   ipcMain.handle('restart-and-update', () => {

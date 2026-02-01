@@ -144,8 +144,12 @@ interface BrowserState {
     removeDroppedFile: (path: string) => void;
 
     // Updates
-    showUpdateDot: boolean;
-    setShowUpdateDot: (show: boolean) => void;
+    hasUpdate: boolean;
+    setHasUpdate: (has: boolean) => void;
+    appVersion: string;
+    setAppVersion: (version: string) => void;
+    latestVersion: string;
+    setLatestVersion: (version: string) => void;
 
     // Tab Actions
     addTab: (url?: string) => void;
@@ -278,8 +282,12 @@ export const useStore = create<BrowserState>((set, get) => ({
     selectionMode: false,
     isGhostSearchOpen: false,
     isGlassCardsOverviewOpen: false,
-    showUpdateDot: false,
-    setShowUpdateDot: (show) => set({ showUpdateDot: show }),
+    hasUpdate: false,
+    setHasUpdate: (has) => set({ hasUpdate: has }),
+    appVersion: '1.4.1',
+    setAppVersion: (version) => set({ appVersion: version }),
+    latestVersion: '',
+    setLatestVersion: (version) => set({ latestVersion: version }),
 
     // Liquid Drop Zone
     droppedFiles: [],

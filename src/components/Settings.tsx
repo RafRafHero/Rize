@@ -5,7 +5,7 @@ import { Monitor, Moon, Sun, Search, Book, Trash2, Check, Sparkles, Droplets } f
 import { cn } from '../lib/utils';
 
 export const Settings: React.FC = () => {
-    const { settings, updateSettings, bookmarks, removeBookmark, settingsSection } = useStore();
+    const { settings, updateSettings, bookmarks, removeBookmark, settingsSection, appVersion } = useStore();
 
     const activeSection = settingsSection;
     const setActiveSection = (section: 'general' | 'bookmarks' | 'appearance') => {
@@ -138,6 +138,27 @@ export const Settings: React.FC = () => {
                                 </div>
                             </section>
 
+                            <div className="h-px bg-border/40 ml-7" />
+
+                            {/* System Information */}
+                            <section className="space-y-4">
+                                <div className="flex flex-col">
+                                    <h3 className="text-base font-semibold flex items-center gap-2">
+                                        <Monitor size={18} className="text-primary" /> System Information
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground ml-7">Application details and version</p>
+                                </div>
+                                <div className="ml-7 p-4 bg-secondary/5 border border-border/40 rounded-xl space-y-2">
+                                    <div className="flex justify-between items-center text-sm font-medium">
+                                        <span className="text-muted-foreground">Version</span>
+                                        <span className="font-mono bg-secondary px-2 py-0.5 rounded-md text-primary">{appVersion || '1.4.1'}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-sm font-medium">
+                                        <span className="text-muted-foreground">Channel</span>
+                                        <span className="text-xs uppercase tracking-widest text-muted-foreground">Production</span>
+                                    </div>
+                                </div>
+                            </section>
                         </div>
                     ) : activeSection === 'appearance' ? (
                         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">

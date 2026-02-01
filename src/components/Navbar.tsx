@@ -21,7 +21,7 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) => {
-    const { tabs, activeTabId, setActiveTab, addTab, updateTab, toggleSettings, addBookmark, removeBookmark, bookmarks, favorites, settings, navFeedback, updateSettings, addDownload, updateDownload, completeDownload, siteHistory, isIncognito, isGeminiPanelOpen, toggleGeminiPanel, isAdBlockerOpen, toggleAdBlocker, showUpdateDot } = useStore();
+    const { tabs, activeTabId, setActiveTab, addTab, updateTab, toggleSettings, addBookmark, removeBookmark, bookmarks, favorites, settings, navFeedback, updateSettings, addDownload, updateDownload, completeDownload, siteHistory, isIncognito, isGeminiPanelOpen, toggleGeminiPanel, isAdBlockerOpen, toggleAdBlocker, hasUpdate } = useStore();
 
     const activeTab = tabs.find(t => t.id === activeTabId);
     const currentUrl = activeTab?.url || '';
@@ -390,7 +390,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                             )}
                         >
                             <Menu size={18} />
-                            {showUpdateDot && (
+                            {hasUpdate && (
                                 <div className="absolute -top-1 -right-1">
                                     <span className="relative flex h-3 w-3">
                                         <span className="animate-pulse absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>

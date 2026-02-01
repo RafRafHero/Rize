@@ -10,7 +10,7 @@ interface MenuPopoverProps {
 }
 
 export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => {
-    const { toggleSettings, setActiveTab, settings, showUpdateDot } = useStore();
+    const { toggleSettings, setActiveTab, settings, hasUpdate, latestVersion } = useStore();
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -26,11 +26,11 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
     }, [isOpen, onClose]);
 
     const menuItems = [
-        ...(showUpdateDot ? [{
-            label: 'New Update Ready',
+        ...(hasUpdate ? [{
+            label: `Update to ${latestVersion || 'New Version'}`,
             icon: RotateCw,
             onClick: () => {
-                (window as any).electron?.ipcRenderer.invoke('apply-update');
+                (window as any).electron?.ipcRenderer.invoke('restart-and-update');
             },
             isUpdate: true
         }] : []),

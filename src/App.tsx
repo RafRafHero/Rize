@@ -19,10 +19,9 @@ import { GhostSearch } from './components/GhostSearch';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { GlassCardsOverlay } from './components/GlassCardsOverlay';
 import { OnboardingOverlay } from './components/OnboardingOverlay';
-import { UpdateBanner } from './components/UpdateBanner';
 
 function App() {
-  const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen } = useStore();
+  const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setUpdateStatus } = useStore();
 
   useEffect(() => {
     const ipc = (window as any).electron?.ipcRenderer;
@@ -129,6 +128,18 @@ function App() {
       (window as any).electron?.ipcRenderer.off('download-complete', onDownloadComplete);
     };
   }, [addDownload, updateDownload, completeDownload]);
+
+  // Update Listener
+  useEffect(() => {
+    const onUpdateInfo = (_: any, data: { status: 'available' | 'ready' | null }) => {
+      setUpdateStatus(data.status);
+    };
+
+    (window as any).electron?.ipcRenderer.on('update-info', onUpdateInfo);
+    return () => {
+      (window as any).electron?.ipcRenderer.off('update-info', onUpdateInfo);
+    };
+  }, [setUpdateStatus]);
 
   const handleReload = () => {
     const wv = webviewRefs.current[activeTabId];
@@ -272,7 +283,6 @@ function App() {
       <GhostSearch />
       <GlassCardsOverlay />
       <OnboardingOverlay />
-      <UpdateBanner />
     </div>
   );
 }

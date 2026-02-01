@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen, Menu, clipboard, session, shell, dialog, net, safeStorage, globalShortcut } from 'electron';
 import { autoUpdater } from 'electron-updater';
+import log from 'electron-log';
 import { ElectronBlocker } from '@cliqz/adblocker-electron';
 import fetch from 'cross-fetch';
 import { randomUUID } from 'crypto';
@@ -321,20 +322,32 @@ app.whenReady().then(async () => {
   setupDownloadManager(session.defaultSession);
 
   // --- Auto Updater ---
+  autoUpdater.logger = log;
+
   if (!process.env.VITE_DEV_SERVER_URL) {
     console.log('[Updater] Checking for updates...');
-    autoUpdater.checkForUpdatesAndNotify();
+    autoUpdater.checkForUpdates();
+
+    // Check every 60 minutes
+    setInterval(() => {
+      autoUpdater.checkForUpdates();
+    }, 60 * 60 * 1000);
   } else {
     console.log('[Updater] Skipping update check in dev mode');
   }
 
   autoUpdater.on('update-available', () => {
     console.log('[Updater] Update available');
+    mainWindow?.webContents.send('update-info', { status: 'available' });
   });
 
   autoUpdater.on('update-downloaded', () => {
     console.log('[Updater] Update downloaded');
-    mainWindow?.webContents.send('show-update-banner');
+    mainWindow?.webContents.send('update-info', { status: 'ready' });
+  });
+
+  ipcMain.handle('restart-and-update', () => {
+    autoUpdater.quitAndInstall();
   });
 
   ipcMain.on('restart-app', () => {

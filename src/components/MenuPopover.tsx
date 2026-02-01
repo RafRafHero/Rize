@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Code, Book, History, X, Monitor, Glasses } from 'lucide-react';
+import { Settings, Code, Book, History, X, Monitor, Glasses, RefreshCw, RotateCw } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { cn } from '../lib/utils';
 
@@ -10,7 +10,7 @@ interface MenuPopoverProps {
 }
 
 export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => {
-    const { toggleSettings, setActiveTab, settings } = useStore();
+    const { toggleSettings, setActiveTab, settings, updateStatus } = useStore();
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -26,6 +26,14 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
     }, [isOpen, onClose]);
 
     const menuItems = [
+        ...(updateStatus === 'ready' ? [{
+            label: 'Update & Restart Rizo',
+            icon: RotateCw, // We need to import this or use a similar icon
+            onClick: () => {
+                (window as any).electron?.ipcRenderer.invoke('restart-and-update');
+            },
+            isUpdate: true
+        }] : []),
         {
             label: 'Settings',
             icon: Settings,
@@ -115,9 +123,14 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
                             <button
                                 key={item.label}
                                 onClick={item.onClick}
-                                className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl hover:bg-secondary transition-colors text-foreground"
+                                className={cn(
+                                    "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl transition-colors",
+                                    (item as any).isUpdate
+                                        ? "bg-red-500/10 text-red-500 hover:bg-red-500/20 font-bold"
+                                        : "hover:bg-secondary text-foreground"
+                                )}
                             >
-                                <item.icon size={16} className="text-muted-foreground" />
+                                <item.icon size={16} className={cn((item as any).isUpdate ? "text-red-500" : "text-muted-foreground")} />
                                 {item.label}
                             </button>
                         ))}

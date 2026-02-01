@@ -7,7 +7,8 @@
     "dev": "concurrently \"tsc -p electron/tsconfig.json -w\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build": "tsc -p electron/tsconfig.json && vite build && electron-builder",
     "build:win": "tsc -p electron/tsconfig.json && vite build && electron-builder --windows nsis",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "publish-always": "electron-builder --win --publish always
   },
   "description": "Rizo Browser",
   "author": "Rizo Team",

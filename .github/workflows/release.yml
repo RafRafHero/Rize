@@ -1,28 +1,34 @@
-name: Build/Release
+name: Release
 
 on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**.md'
+      - '.github/ISSUE_TEMPLATE/**'
 
 jobs:
   release:
     runs-on: windows-latest
 
+    permissions:
+      contents: write
+
     steps:
-      - name: Check out git repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Node.js
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build and Publish
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run publish-always

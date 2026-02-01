@@ -1,6 +1,5 @@
 import { app, BrowserWindow, ipcMain, screen, Menu, clipboard, session, shell, dialog, net, safeStorage, globalShortcut } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import log from 'electron-log';
 import { ElectronBlocker } from '@cliqz/adblocker-electron';
 import fetch from 'cross-fetch';
 import { randomUUID } from 'crypto';
@@ -136,8 +135,6 @@ if (isIncognitoProcess) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-export { mainWindow }; // Ensure it's exported for auto-updater
-
 
 const createWindow = (isIncognito = false) => {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -189,9 +186,8 @@ const createWindow = (isIncognito = false) => {
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}${queryString}`);
   } else {
-    // robust production loading
     const indexPath = path.join(__dirname, '../dist/index.html');
-    mainWindow.loadFile(indexPath, { search: queryString });
+    mainWindow.loadURL(`file://${indexPath}${queryString}`);
   }
 
   // Open the DevTools.
@@ -242,31 +238,49 @@ const setupOptimizations = (ses: Electron.Session) => {
   applyYouTubeNetworkBlocker(ses);
 
   // Inject Performance Optimization Script
-  let optimizationPath = '';
-  if (process.env.VITE_DEV_SERVER_URL) {
-    optimizationPath = path.join(app.getAppPath(), 'public', 'optimization-inject.js');
-  } else {
-    optimizationPath = path.join(process.resourcesPath, 'app.asar', 'public', 'optimization-inject.js');
-    // Alternative valid path if app.asar is root of resources in some configs:
-    // optimizationPath = path.join(__dirname, '../public/optimization-inject.js');
-
-    // Let's use a more robust check or standard electron-builder structure
-    // Usually, __dirname in main process (dist-electron/main.js) -> public is one level up if copied
-    // But since we added "public/**/*" to files, it should be at root of app.asar/public
-    optimizationPath = path.join(__dirname, '../public/optimization-inject.js');
-  }
-
-  // Verify file exists before registering to avoid crash
-  if (fs.existsSync(optimizationPath)) {
-    ses.registerPreloadScript({
-      id: 'performance-optimizations',
-      type: 'frame',
-      filePath: optimizationPath
-    });
-  } else {
-    console.warn(`[Main] Optimization script not found at ${optimizationPath}`);
-  }
+  const optimizationPath = path.join(app.getAppPath(), 'public', 'optimization-inject.js');
+  ses.registerPreloadScript({
+    id: 'performance-optimizations',
+    type: 'frame',
+    filePath: optimizationPath
+  });
 };
+
+// --- Auto Updater Logic ---
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = false;
+
+autoUpdater.on('update-available', () => {
+  console.log('[AutoUpdater] Update available.');
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('[AutoUpdater] Update downloaded:', info);
+  mainWindow?.webContents.send('update-downloaded', info.version);
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('[AutoUpdater] Error:', err);
+});
+
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion();
+});
+
+ipcMain.handle('quit-and-install', () => {
+  autoUpdater.quitAndInstall(false, true);
+});
+
+// Poll for updates every 30 minutes
+setInterval(() => {
+  autoUpdater.checkForUpdates();
+}, 30 * 60 * 1000);
+
+// Check once on startup (delayed slightly to ensure window is ready)
+setTimeout(() => {
+  autoUpdater.checkForUpdates();
+}, 10000);
+
 
 // Initialize app then setup store and optimizations
 app.whenReady().then(async () => {
@@ -300,11 +314,6 @@ app.whenReady().then(async () => {
     launchIncognito();
   });
 
-  // Production Debug Shortcut
-  globalShortcut.register('CommandOrControl+Shift+I', () => {
-    mainWindow?.webContents.openDevTools({ mode: 'detach' });
-  });
-
   // Register Ghost Search Shortcut
   const searchRegistered = globalShortcut.register('CommandOrControl+K', () => {
     mainWindow?.webContents.send('toggle-ghost-search');
@@ -321,64 +330,8 @@ app.whenReady().then(async () => {
     // 1. Ask Main Window to get context from active view
     mainWindow?.webContents.send('gemini-get-context');
   });
+
   setupDownloadManager(session.defaultSession);
-
-  // --- Auto Updater ---
-  autoUpdater.logger = log;
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  if (!process.env.VITE_DEV_SERVER_URL) {
-    console.log('[Updater] Checking for updates...');
-    autoUpdater.checkForUpdates();
-
-    // Check every 60 minutes
-    setInterval(() => {
-      autoUpdater.checkForUpdates();
-    }, 60 * 60 * 1000);
-  } else {
-    console.log('[Updater] Skipping update check in dev mode');
-  }
-
-  autoUpdater.on('update-available', (info) => {
-    console.log('[Updater] Update available:', info.version);
-    mainWindow?.webContents.send('update-available', {
-      available: true,
-      version: info.version
-    });
-  });
-
-  autoUpdater.on('update-downloaded', (info) => {
-    console.log('[Updater] Update downloaded:', info.version);
-    mainWindow?.webContents.send('update-available', {
-      available: true,
-      version: info.version
-    });
-  });
-
-  ipcMain.handle('apply-update', () => {
-    console.log('[Updater] Applying update via force-quit');
-    setImmediate(() => {
-      autoUpdater.quitAndInstall(false, true);
-    });
-  });
-
-  ipcMain.handle('restart-and-update', () => {
-    console.log('[Updater] Restart and update triggered');
-    autoUpdater.quitAndInstall(false, true);
-  });
-
-  ipcMain.handle('get-app-version', () => {
-    return app.getVersion();
-  });
-
-  ipcMain.handle('restart-and-update', () => {
-    autoUpdater.quitAndInstall();
-  });
-
-  ipcMain.on('restart-app', () => {
-    autoUpdater.quitAndInstall();
-  });
 
   createWindow(isIncognitoProcess);
 });
@@ -663,7 +616,6 @@ ipcMain.on('show-context-menu', (event, params) => {
   const webContents = event.sender;
   const win = BrowserWindow.fromWebContents(webContents);
 
-
   // Helper to generic create tab
   const createTab = (url: string) => {
     if (win) {
@@ -776,45 +728,6 @@ ipcMain.on('show-context-menu', (event, params) => {
   if (win) {
     menu.popup({ window: win });
   }
-});
-
-ipcMain.on('show-tab-context-menu', (event, { tabId, groupId, groups }) => {
-  const template: Array<Electron.MenuItemConstructorOptions | Electron.MenuItem> = [];
-  const win = BrowserWindow.fromWebContents(event.sender);
-
-  if (!win) return;
-  const webContents = win.webContents;
-
-  template.push({
-    label: 'Add to New Group',
-    click: () => webContents.send('group-tab', { tabId, action: 'new' })
-  });
-
-  if (groupId) {
-    template.push({
-      label: 'Remove from Group',
-      click: () => webContents.send('ungroup-tab', { tabId })
-    });
-  }
-
-  if (groups && groups.length > 0) {
-    template.push({
-      label: 'Move to Group',
-      submenu: groups.map((g: any) => ({
-        label: g.title,
-        click: () => webContents.send('move-tab', { tabId, groupId: g.id })
-      }))
-    });
-  }
-
-  template.push({ type: 'separator' });
-  template.push({
-    label: 'Close Tab',
-    click: () => webContents.send('close-tab', { tabId })
-  });
-
-  const menu = Menu.buildFromTemplate(template);
-  menu.popup({ window: win });
 });
 
 ipcMain.on('open-dev-tools', (event) => {
@@ -1175,12 +1088,4 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
-});
-
-ipcMain.on('start-file-drag', (event, filePath) => {
-  const iconPath = path.join(app.getAppPath(), 'public/favicon.ico');
-  event.sender.startDrag({
-    file: filePath,
-    icon: fs.existsSync(iconPath) ? iconPath : path.join(__dirname, '../public/favicon.ico'),
-  });
 });

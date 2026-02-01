@@ -65,10 +65,6 @@ export interface Settings {
     adBlockEnabled: boolean;
     adBlockWhitelist: string[];
     showHomeButton: boolean;
-    // Cryo-Freeze
-    cryoEnabled: boolean;
-    cryoTimer: number; // in minutes
-    liquidDropEnabled: boolean;
 }
 
 export interface Tab {
@@ -80,17 +76,6 @@ export interface Tab {
     canGoForward: boolean;
     favicon?: string;
     thumbnailUrl?: string;
-    groupId?: string;
-    // Cryo-Freeze State
-    isFrozen?: boolean;
-    lastAccessed?: number;
-}
-
-export interface TabGroup {
-    id: string;
-    title: string;
-    color: string;
-    isCollapsed: boolean;
 }
 
 export interface DownloadItem {
@@ -109,7 +94,6 @@ export interface DownloadItem {
 
 interface BrowserState {
     tabs: Tab[];
-    tabGroups: TabGroup[];
     activeTabId: string;
     bookmarks: Bookmark[];
     favorites: Bookmark[];
@@ -137,37 +121,11 @@ interface BrowserState {
     isGhostSearchOpen: boolean;
     toggleGhostSearch: (open?: boolean) => void;
 
-    // Liquid Drop Zone
-    droppedFiles: { path: string; name: string; type: string }[];
-    addDroppedFile: (file: { path: string; name: string; type: string }) => void;
-    clearDroppedFiles: () => void;
-    removeDroppedFile: (path: string) => void;
-
-    // Updates
-    hasUpdate: boolean;
-    setHasUpdate: (has: boolean) => void;
-    appVersion: string;
-    setAppVersion: (version: string) => void;
-    latestVersion: string;
-    setLatestVersion: (version: string) => void;
-
     // Tab Actions
     addTab: (url?: string) => void;
     removeTab: (id: string) => void;
     setActiveTab: (id: string) => void;
     updateTab: (id: string, data: Partial<Tab>) => void;
-    freezeTab: (id: string) => void;
-    unfreezeTab: (id: string) => void;
-
-    // Group Actions
-    createGroup: (title: string, color: string) => string;
-    deleteGroup: (id: string) => void;
-    addTabToGroup: (tabId: string, groupId: string) => void;
-    removeTabFromGroup: (tabId: string) => void;
-    toggleGroupCollapse: (groupId: string, collapsed?: boolean) => void;
-    updateGroup: (id: string, data: Partial<TabGroup>) => void;
-    reorderTabs: (newTabs: Tab[]) => void;
-    reorderGroups: (newGroups: TabGroup[]) => void;
 
     // Bookmark Actions
     addBookmark: (bookmark: Bookmark) => void;
@@ -185,6 +143,8 @@ interface BrowserState {
     // Gemini Actions
     toggleGeminiPanel: () => void;
     toggleGlassCards: (open?: boolean) => void;
+    setUpdateReady: (ready: boolean) => void;
+    isUpdateReady: boolean;
     toggleAdBlocker: () => void;
     setInternalPage: (page: 'history' | 'passwords' | null) => void;
     clearCapturedPassword: () => void;
@@ -215,7 +175,6 @@ interface BrowserState {
 
 export const useStore = create<BrowserState>((set, get) => ({
     tabs: [{ id: '1', url: '', title: 'New Tab', isLoading: false, canGoBack: false, canGoForward: false }],
-    tabGroups: [],
     activeTabId: '1',
     bookmarks: [],
     favorites: [],
@@ -261,10 +220,7 @@ export const useStore = create<BrowserState>((set, get) => ({
         neverSavePasswords: [],
         adBlockEnabled: true,
         adBlockWhitelist: [],
-        showHomeButton: false,
-        cryoEnabled: true,
-        cryoTimer: 10,
-        liquidDropEnabled: true,
+        showHomeButton: false
     },
     settingsSection: 'general',
     isDownloadsOpen: false,
@@ -282,22 +238,9 @@ export const useStore = create<BrowserState>((set, get) => ({
     selectionMode: false,
     isGhostSearchOpen: false,
     isGlassCardsOverviewOpen: false,
-    hasUpdate: false,
-    setHasUpdate: (has) => set({ hasUpdate: has }),
-    appVersion: '1.4.1',
-    setAppVersion: (version) => set({ appVersion: version }),
-    latestVersion: '',
-    setLatestVersion: (version) => set({ latestVersion: version }),
+    isUpdateReady: false,
 
-    // Liquid Drop Zone
-    droppedFiles: [],
-    addDroppedFile: (file) => set((state) => ({
-        droppedFiles: [...state.droppedFiles.filter(f => f.path !== file.path), file]
-    })),
-    clearDroppedFiles: () => set({ droppedFiles: [] }),
-    removeDroppedFile: (path) => set((state) => ({
-        droppedFiles: state.droppedFiles.filter(f => f.path !== path)
-    })),
+    setUpdateReady: (ready) => set({ isUpdateReady: ready }),
 
     toggleGlassCards: (open) => set((state) => ({
         isGlassCardsOverviewOpen: open !== undefined ? open : !state.isGlassCardsOverviewOpen
@@ -349,66 +292,6 @@ export const useStore = create<BrowserState>((set, get) => ({
     updateTab: (id, data) => set((state) => ({
         tabs: state.tabs.map(t => t.id === id ? { ...t, ...data } : t)
     })),
-
-    freezeTab: (id) => set((state) => ({
-        tabs: state.tabs.map((t) => (t.id === id ? { ...t, isFrozen: true, isLoading: false } : t)),
-    })),
-
-    unfreezeTab: (id) => set((state) => ({
-        tabs: state.tabs.map((t) => (t.id === id ? { ...t, isFrozen: false, lastAccessed: Date.now() } : t)),
-    })),
-
-    createGroup: (title, color) => {
-        const id = Date.now().toString();
-        set((state) => {
-            const newGroups = [...state.tabGroups, { id, title, color, isCollapsed: false }];
-            (window as any).electron?.store.set('tabGroups', newGroups);
-            return { tabGroups: newGroups };
-        });
-        return id;
-    },
-
-    deleteGroup: (id) => set((state) => {
-        const newGroups = state.tabGroups.filter(g => g.id !== id);
-        // Ungroup tabs that were in this group
-        const newTabs = state.tabs.map(t => t.groupId === id ? { ...t, groupId: undefined } : t);
-
-        (window as any).electron?.store.set('tabGroups', newGroups);
-        // We probably don't need to persist tabs every single change unless we want full session restore, 
-        // but removing group association matters if tabs are persisted.
-        return { tabGroups: newGroups, tabs: newTabs };
-    }),
-
-    addTabToGroup: (tabId, groupId) => set((state) => ({
-        tabs: state.tabs.map(t => t.id === tabId ? { ...t, groupId } : t)
-    })),
-
-    removeTabFromGroup: (tabId) => set((state) => ({
-        tabs: state.tabs.map(t => t.id === tabId ? { ...t, groupId: undefined } : t)
-    })),
-
-    toggleGroupCollapse: (groupId, collapsed) => set((state) => {
-        const newGroups = state.tabGroups.map(g => g.id === groupId ? { ...g, isCollapsed: collapsed !== undefined ? collapsed : !g.isCollapsed } : g);
-        (window as any).electron?.store.set('tabGroups', newGroups);
-        return { tabGroups: newGroups };
-    }),
-
-    updateGroup: (id, data) => set((state) => {
-        const newGroups = state.tabGroups.map(g => g.id === id ? { ...g, ...data } : g);
-        (window as any).electron?.store.set('tabGroups', newGroups);
-        return { tabGroups: newGroups };
-    }),
-
-    reorderTabs: (newTabs) => set(() => {
-        // We probably don't want to persist full tabs on every drag for perf, 
-        // but for now let's assume valid state is passed
-        return { tabs: newTabs };
-    }),
-
-    reorderGroups: (newGroups) => set(() => {
-        (window as any).electron?.store.set('tabGroups', newGroups);
-        return { tabGroups: newGroups };
-    }),
 
     addBookmark: (bookmark) => set((state) => {
         if (!bookmark || !bookmark.id) return {};
@@ -628,7 +511,6 @@ export const initStore = async () => {
     const electron = (window as any).electron;
     if (electron) {
         const storedBookmarks = await electron.store.get('bookmarks');
-        const storedGroups = await electron.store.get('tabGroups');
         const storedSettings = await electron.store.get('settings');
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -730,10 +612,6 @@ export const initStore = async () => {
         const firstRun = await electron.store.get('firstRunCompleted');
         if (firstRun !== undefined) {
             useStore.setState({ firstRunCompleted: firstRun });
-        }
-
-        if (storedGroups) {
-            useStore.setState({ tabGroups: storedGroups });
         }
     }
 };

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings, Code, Book, History, X, Monitor, Glasses, RefreshCw, RotateCw } from 'lucide-react';
+import { Settings, Code, Book, History, X, Monitor, Glasses, RefreshCw } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { cn } from '../lib/utils';
 
@@ -10,7 +10,7 @@ interface MenuPopoverProps {
 }
 
 export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => {
-    const { toggleSettings, setActiveTab, settings, hasUpdate, latestVersion } = useStore();
+    const { toggleSettings, setActiveTab, settings, isUpdateReady } = useStore();
     const containerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -26,13 +26,14 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
     }, [isOpen, onClose]);
 
     const menuItems = [
-        ...(hasUpdate ? [{
-            label: `Update to ${latestVersion || 'New Version'}`,
-            icon: RotateCw,
+        ...(isUpdateReady ? [{
+            label: 'Restart to Install Update',
+            icon: RefreshCw,
+            className: 'text-red-400 font-bold',
             onClick: () => {
-                (window as any).electron?.ipcRenderer.invoke('restart-and-update');
-            },
-            isUpdate: true
+                (window as any).electron?.ipcRenderer.invoke('quit-and-install');
+                onClose();
+            }
         }] : []),
         {
             label: 'Settings',
@@ -123,14 +124,9 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
                             <button
                                 key={item.label}
                                 onClick={item.onClick}
-                                className={cn(
-                                    "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl transition-all duration-300",
-                                    (item as any).isUpdate
-                                        ? "bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-900/20 font-bold mb-1"
-                                        : "hover:bg-secondary text-foreground"
-                                )}
+                                className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl hover:bg-secondary transition-colors text-foreground"
                             >
-                                <item.icon size={16} className={cn((item as any).isUpdate ? "text-white" : "text-muted-foreground")} />
+                                <item.icon size={16} className="text-muted-foreground" />
                                 {item.label}
                             </button>
                         ))}

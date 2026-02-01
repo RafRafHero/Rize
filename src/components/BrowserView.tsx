@@ -1,5 +1,4 @@
 import React, { useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { useStore } from '../store/useStore';
 import { cn } from '../lib/utils';
 import { NewTab } from './NewTab';
@@ -24,18 +23,10 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
         request: any;
         origin: string;
     } | null>(null);
-    const { updateTab, tabs, triggerNavFeedback, addTab, recordVisit, unfreezeTab } = useStore();
+    const { updateTab, tabs, triggerNavFeedback, addTab, recordVisit } = useStore();
 
     const tab = tabs.find(t => t.id === tabId);
     const currentUrl = tab?.url || '';
-    const isFrozen = tab?.isFrozen;
-
-    // Auto-thaw if active (handled in App.tsx usually, but safe to ensure here)
-    useEffect(() => {
-        if (isActive && isFrozen) {
-            unfreezeTab(tabId);
-        }
-    }, [isActive, isFrozen, tabId, unfreezeTab]);
 
     useEffect(() => {
         if (webviewRef.current) {
@@ -339,7 +330,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                 onMouseUp={handleContainerMouseUp}
             >
                 {/* Webview or Internal Pages */}
-                {!isImageView && !isSettingsPage && !isFrozen && (
+                {!isImageView && !isSettingsPage && (
                     <webview
                         ref={webviewRef as any}
                         key={useStore.getState().activeProfileId || 'default'}
@@ -356,30 +347,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                             allowpopups: "true"
                         } as any)}
                     />
-                )}
-
-                {/* Frozen Placeholder */}
-                {isFrozen && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/50 backdrop-blur-sm z-10">
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            className="bg-white/10 p-8 rounded-2xl border border-white/20 shadow-xl backdrop-blur-md flex flex-col items-center gap-4"
-                        >
-                            <div className="relative">
-                                <div className="absolute inset-0 bg-cyan-400 blur-xl opacity-30 animate-pulse"></div>
-                                <div className="w-16 h-16 bg-gradient-to-br from-cyan-300 to-blue-500 rounded-full flex items-center justify-center relative z-10 shadow-inner">
-                                    <div className="text-white text-2xl font-bold">❄️</div>
-                                </div>
-                            </div>
-                            <h2 className="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">
-                                Tab Frozen
-                            </h2>
-                            <p className="text-gray-400 text-sm max-w-xs text-center">
-                                This tab has been hibernated to save memory. Click to thaw.
-                            </p>
-                        </motion.div>
-                    </div>
                 )}
 
                 {/* Image Viewer Overlay */}

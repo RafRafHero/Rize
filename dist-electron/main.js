@@ -175,8 +175,8 @@ const createWindow = (isIncognito = false) => {
         mainWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}${queryString}`);
     }
     else {
-        // robust production loading
-        mainWindow.loadFile(path_1.default.join(__dirname, '../dist/index.html'), { search: queryString });
+        const indexPath = path_1.default.join(__dirname, '../dist/index.html');
+        mainWindow.loadURL(`file://${indexPath}${queryString}`);
     }
     // Open the DevTools.
     // mainWindow.webContents.openDevTools();
@@ -219,31 +219,40 @@ const setupOptimizations = (ses) => {
     applyAdBlocking(ses);
     applyYouTubeNetworkBlocker(ses);
     // Inject Performance Optimization Script
-    let optimizationPath = '';
-    if (process.env.VITE_DEV_SERVER_URL) {
-        optimizationPath = path_1.default.join(electron_1.app.getAppPath(), 'public', 'optimization-inject.js');
-    }
-    else {
-        optimizationPath = path_1.default.join(process.resourcesPath, 'app.asar', 'public', 'optimization-inject.js');
-        // Alternative valid path if app.asar is root of resources in some configs:
-        // optimizationPath = path.join(__dirname, '../public/optimization-inject.js');
-        // Let's use a more robust check or standard electron-builder structure
-        // Usually, __dirname in main process (dist-electron/main.js) -> public is one level up if copied
-        // But since we added "public/**/*" to files, it should be at root of app.asar/public
-        optimizationPath = path_1.default.join(__dirname, '../public/optimization-inject.js');
-    }
-    // Verify file exists before registering to avoid crash
-    if (fs_1.default.existsSync(optimizationPath)) {
-        ses.registerPreloadScript({
-            id: 'performance-optimizations',
-            type: 'frame',
-            filePath: optimizationPath
-        });
-    }
-    else {
-        console.warn(`[Main] Optimization script not found at ${optimizationPath}`);
-    }
+    const optimizationPath = path_1.default.join(electron_1.app.getAppPath(), 'public', 'optimization-inject.js');
+    ses.registerPreloadScript({
+        id: 'performance-optimizations',
+        type: 'frame',
+        filePath: optimizationPath
+    });
 };
+// --- Auto Updater Logic ---
+electron_updater_1.autoUpdater.autoDownload = true;
+electron_updater_1.autoUpdater.autoInstallOnAppQuit = false;
+electron_updater_1.autoUpdater.on('update-available', () => {
+    console.log('[AutoUpdater] Update available.');
+});
+electron_updater_1.autoUpdater.on('update-downloaded', (info) => {
+    console.log('[AutoUpdater] Update downloaded:', info);
+    mainWindow?.webContents.send('update-downloaded', info.version);
+});
+electron_updater_1.autoUpdater.on('error', (err) => {
+    console.error('[AutoUpdater] Error:', err);
+});
+electron_1.ipcMain.handle('get-app-version', () => {
+    return electron_1.app.getVersion();
+});
+electron_1.ipcMain.handle('quit-and-install', () => {
+    electron_updater_1.autoUpdater.quitAndInstall(false, true);
+});
+// Poll for updates every 30 minutes
+setInterval(() => {
+    electron_updater_1.autoUpdater.checkForUpdates();
+}, 30 * 60 * 1000);
+// Check once on startup (delayed slightly to ensure window is ready)
+setTimeout(() => {
+    electron_updater_1.autoUpdater.checkForUpdates();
+}, 10000);
 // Initialize app then setup store and optimizations
 electron_1.app.whenReady().then(async () => {
     await initElectronStore();
@@ -270,10 +279,6 @@ electron_1.app.whenReady().then(async () => {
     electron_1.globalShortcut.register('CommandOrControl+Shift+N', () => {
         launchIncognito();
     });
-    // Production Debug Shortcut
-    electron_1.globalShortcut.register('CommandOrControl+Shift+I', () => {
-        mainWindow?.webContents.openDevTools({ mode: 'detach' });
-    });
     // Register Ghost Search Shortcut
     const searchRegistered = electron_1.globalShortcut.register('CommandOrControl+K', () => {
         mainWindow?.webContents.send('toggle-ghost-search');
@@ -290,24 +295,6 @@ electron_1.app.whenReady().then(async () => {
         mainWindow?.webContents.send('gemini-get-context');
     });
     setupDownloadManager(electron_1.session.defaultSession);
-    // --- Auto Updater ---
-    if (!process.env.VITE_DEV_SERVER_URL) {
-        console.log('[Updater] Checking for updates...');
-        electron_updater_1.autoUpdater.checkForUpdatesAndNotify();
-    }
-    else {
-        console.log('[Updater] Skipping update check in dev mode');
-    }
-    electron_updater_1.autoUpdater.on('update-available', () => {
-        console.log('[Updater] Update available');
-    });
-    electron_updater_1.autoUpdater.on('update-downloaded', () => {
-        console.log('[Updater] Update downloaded');
-        mainWindow?.webContents.send('show-update-banner');
-    });
-    electron_1.ipcMain.on('restart-app', () => {
-        electron_updater_1.autoUpdater.quitAndInstall();
-    });
     createWindow(isIncognitoProcess);
 });
 // Bypass certificate trust issues for local development/antivirus interference
@@ -664,39 +651,6 @@ electron_1.ipcMain.on('show-context-menu', (event, params) => {
         menu.popup({ window: win });
     }
 });
-electron_1.ipcMain.on('show-tab-context-menu', (event, { tabId, groupId, groups }) => {
-    const template = [];
-    const win = electron_1.BrowserWindow.fromWebContents(event.sender);
-    if (!win)
-        return;
-    const webContents = win.webContents;
-    template.push({
-        label: 'Add to New Group',
-        click: () => webContents.send('group-tab', { tabId, action: 'new' })
-    });
-    if (groupId) {
-        template.push({
-            label: 'Remove from Group',
-            click: () => webContents.send('ungroup-tab', { tabId })
-        });
-    }
-    if (groups && groups.length > 0) {
-        template.push({
-            label: 'Move to Group',
-            submenu: groups.map((g) => ({
-                label: g.title,
-                click: () => webContents.send('move-tab', { tabId, groupId: g.id })
-            }))
-        });
-    }
-    template.push({ type: 'separator' });
-    template.push({
-        label: 'Close Tab',
-        click: () => webContents.send('close-tab', { tabId })
-    });
-    const menu = electron_1.Menu.buildFromTemplate(template);
-    menu.popup({ window: win });
-});
 electron_1.ipcMain.on('open-dev-tools', (event) => {
     event.sender.openDevTools();
 });
@@ -1048,12 +1002,5 @@ electron_1.app.on('activate', () => {
     if (electron_1.BrowserWindow.getAllWindows().length === 0) {
         createWindow();
     }
-});
-electron_1.ipcMain.on('start-file-drag', (event, filePath) => {
-    const iconPath = path_1.default.join(electron_1.app.getAppPath(), 'public/favicon.ico');
-    event.sender.startDrag({
-        file: filePath,
-        icon: fs_1.default.existsSync(iconPath) ? iconPath : path_1.default.join(__dirname, '../public/favicon.ico'),
-    });
 });
 //# sourceMappingURL=main.js.map

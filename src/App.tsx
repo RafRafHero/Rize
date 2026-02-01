@@ -21,11 +21,15 @@ import { GlassCardsOverlay } from './components/GlassCardsOverlay';
 import { OnboardingOverlay } from './components/OnboardingOverlay';
 
 function App() {
-  const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setHasUpdate, setAppVersion, setLatestVersion } = useStore();
+  const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setUpdateReady } = useStore();
 
   useEffect(() => {
     const ipc = (window as any).electron?.ipcRenderer;
     if (ipc) {
+      ipc.on('update-downloaded', () => {
+        setUpdateReady(true);
+      });
+
       ipc.on('prompt-save-password', (_event: any, data: any) => {
         try {
           const domain = new URL(data.url).hostname;
@@ -128,24 +132,6 @@ function App() {
       (window as any).electron?.ipcRenderer.off('download-complete', onDownloadComplete);
     };
   }, [addDownload, updateDownload, completeDownload]);
-
-  // Version & Update Listener
-  useEffect(() => {
-    // Get version
-    (window as any).electron?.ipcRenderer.invoke('get-app-version').then((version: string) => {
-      setAppVersion(version);
-    });
-
-    const onUpdateInfo = (_: any, data: { available: boolean; version: string | null }) => {
-      setHasUpdate(data.available);
-      if (data.version) setLatestVersion(data.version);
-    };
-
-    (window as any).electron?.ipcRenderer.on('update-available', onUpdateInfo);
-    return () => {
-      (window as any).electron?.ipcRenderer.off('update-available', onUpdateInfo);
-    };
-  }, [setHasUpdate, setAppVersion, setLatestVersion]);
 
   const handleReload = () => {
     const wv = webviewRefs.current[activeTabId];

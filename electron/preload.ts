@@ -131,6 +131,5 @@ contextBridge.exposeInMainWorld('electron', {
             ipcRenderer.removeAllListeners(channel); // Brute force removal for this simplified bridge
         },
         invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
-    },
-    appVersion: process.env.npm_package_version || '' // We'll also provide a handle to get it dynamically if needed
+    }
 });

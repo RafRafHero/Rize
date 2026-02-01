@@ -17,9 +17,11 @@ import { PasswordPrompt } from './components/PasswordPrompt';
 import { GeminiIcon } from './components/GeminiIcon';
 import { GhostSearch } from './components/GhostSearch';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { GlassCardsOverlay } from './components/GlassCardsOverlay';
+import { OnboardingOverlay } from './components/OnboardingOverlay';
 
 function App() {
-  const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword } = useStore();
+  const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen } = useStore();
 
   useEffect(() => {
     const ipc = (window as any).electron?.ipcRenderer;
@@ -37,7 +39,46 @@ function App() {
       });
     }
   }, []);
+
   const webviewRefs = useRef<{ [key: string]: any }>({});
+
+  // Glass Cards Hotkey (Ctrl+Shift+T)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check for Ctrl+Shift+T (Windows/Linux) or Cmd+Shift+T (Mac)
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+        e.preventDefault();
+
+        const isOpen = useStore.getState().isGlassCardsOverviewOpen;
+
+        // If opening, capture current tab first for fresh snapshot
+        if (!isOpen) {
+          const currentActiveId = useStore.getState().activeTabId;
+          const wv = webviewRefs.current[currentActiveId];
+          if (wv && wv.capturePage) {
+            wv.capturePage().then((image: any) => {
+              if (image && !image.isEmpty()) {
+                updateTab(currentActiveId, { thumbnailUrl: image.toDataURL() });
+              }
+              // Open after capture (or attempt)
+              toggleGlassCards(true);
+            }).catch((err: any) => {
+              console.error("Snapshot error:", err);
+              toggleGlassCards(true);
+            });
+          } else {
+            toggleGlassCards(true);
+          }
+        } else {
+          toggleGlassCards(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleGlassCards, updateTab]);
+
   const activeTab = tabs.find(t => t.id === activeTabId);
 
   useEffect(() => {
@@ -46,6 +87,19 @@ function App() {
       if (isIncognito) {
         useStore.setState({ isIncognito: true });
         document.documentElement.classList.add('mode-midnight');
+      } else {
+        // Apply Global Mode Classes based on settings after initStore
+        const currentSettings = useStore.getState().settings;
+        const mode = currentSettings.homePageConfig?.mode;
+        document.documentElement.classList.remove('mode-day', 'mode-night', 'mode-sunset', 'mode-midnight'); // Remove all possible modes first
+        if (mode) {
+          document.documentElement.classList.add(`mode-${mode}`);
+        } else if (currentSettings.theme === 'dark' || (currentSettings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('mode-night');
+        } else {
+          // Default to day mode if no specific mode and not dark
+          document.documentElement.classList.add('mode-day');
+        }
       }
     });
   }, []);
@@ -98,7 +152,7 @@ function App() {
   return (
     <div className={cn(
       "relative h-screen w-screen overflow-hidden text-foreground bg-black transition-colors duration-500",
-      useStore.getState().isIncognito ? "mode-midnight" : settings.homePageConfig.mode ? `mode-${settings.homePageConfig.mode}` : "mode-none"
+      useStore.getState().isIncognito ? "mode-midnight" : settings.homePageConfig.mode ? `mode-${settings.homePageConfig.mode}` : (settings.theme === 'dark' ? "mode-night" : "mode-none")
     )}>
       {/* Background Layer */}
       {useStore.getState().isIncognito ? (
@@ -186,6 +240,7 @@ function App() {
                         <BrowserView
                           tabId={tab.id}
                           isActive={tab.id === activeTabId}
+                          isVisible={isVisible}
                           onMount={(wv) => {
                             if (wv) webviewRefs.current[tab.id] = wv;
                             else delete webviewRefs.current[tab.id];
@@ -213,8 +268,9 @@ function App() {
         </>
       )}
       <DownloadsPage />
-      <Settings />
       <GhostSearch />
+      <GlassCardsOverlay />
+      <OnboardingOverlay />
     </div>
   );
 }

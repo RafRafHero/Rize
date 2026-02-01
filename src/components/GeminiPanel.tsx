@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, RefreshCw, Maximize2, Minimize2 } from 'lucide-react';
+import { X, RefreshCw, Maximize2, Minimize2, Sparkles } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
 import { useStore } from '../store/useStore';
 import { cn } from '../lib/utils';
@@ -48,6 +48,52 @@ export const GeminiPanel: React.FC = () => {
         }
     };
 
+    const handleSummarize = () => {
+        (window as any).electron?.ipcRenderer.send('gemini-summarize-request');
+    };
+
+    useEffect(() => {
+        const ipc = (window as any).electron?.ipcRenderer;
+        if (!ipc) return;
+
+        const onInjectContext = (_: any, data: { title: string, url: string, content: string }) => {
+            if (!webviewRef.current) return;
+
+            // Open panel if closed
+            if (!isGeminiPanelOpen) {
+                toggleGeminiPanel();
+            }
+
+            // construct prompt
+            const prompt = `Context from my current tab: "${data.title}" (${data.url}).\n\nContent:\n${data.content}\n\n--- \nNow, based on this, please summarize the key points.`;
+
+            webviewRef.current.executeJavaScript(`
+                (() => {
+                    // Try to find the input box. Gemini's structure changes, but rich-textarea is common
+                    const input = document.querySelector('div[contenteditable="true"]') || document.querySelector('textarea');
+                    
+                    if (input) {
+                        input.focus();
+                        document.execCommand('insertText', false, \`${prompt.replace(/`/g, '\\`')}\`);
+                        
+                        // Optional: Try to find send button
+                        setTimeout(() => {
+                            const sendBtn = document.querySelector('button[aria-label="Send message"]') || document.querySelector('button[aria-label="Send"]');
+                            if (sendBtn) sendBtn.click();
+                        }, 500);
+                    } else {
+                        console.error('Gemini input not found');
+                    }
+                })()
+            `);
+        };
+
+        ipc.on('gemini-inject-context', onInjectContext);
+        return () => {
+            ipc.off('gemini-inject-context', onInjectContext);
+        };
+    }, [isGeminiPanelOpen, toggleGeminiPanel]);
+
     return (
         <AnimatePresence>
             {isGeminiPanelOpen && (
@@ -74,6 +120,13 @@ export const GeminiPanel: React.FC = () => {
                             <span className="text-sm font-bold tracking-tight bg-gradient-to-r from-[#8000FF] to-[#FFA256] bg-clip-text text-transparent">Gemini AI</span>
                         </div>
                         <div className="flex items-center gap-1">
+                            <button
+                                onClick={handleSummarize}
+                                className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-yellow-400 hover:text-yellow-300"
+                                title="Summarize active tab (Alt+S)"
+                            >
+                                <Sparkles size={14} />
+                            </button>
                             <button
                                 onClick={handleRefresh}
                                 className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-muted-foreground hover:text-foreground"

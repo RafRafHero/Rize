@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowLeft, ArrowRight, RotateCw, Menu, X, Minus, Square, Star, SplitSquareHorizontal, Plus,
-    Search, Globe, ChevronRight, Glasses, Users, GripVertical, Shield
+    Search, Globe, ChevronRight, Glasses, Users, GripVertical, Shield, Home
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
 import { BookmarkPopover } from './BookmarkPopover';
@@ -210,10 +210,25 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                     >
                         <RotateCw size={16} className={cn(activeTab?.isLoading && "animate-spin")} />
                     </motion.button>
+
+                    {settings.showHomeButton && (
+                        <motion.button
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => updateTab(activeTabId, { url: '' })}
+                            className={cn(
+                                "p-1.5 rounded-full transition-colors hover:bg-secondary/80",
+                                isIncognito && "text-white"
+                            )}
+                            title="Go to Home"
+                        >
+                            <Home size={16} />
+                        </motion.button>
+                    )}
                 </div>
 
                 <div className="flex-1 relative mx-2 no-drag">
                     <motion.div
+                        id="url-bar"
                         layout
                         className={cn(
                             "flex items-center bg-secondary/50 rounded-lg px-3 transition-all duration-300 border border-transparent focus-within:border-primary/20",
@@ -381,6 +396,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
 
                     <div className="relative">
                         <motion.button
+                            id="adblock-shield"
                             whileTap={{ scale: 0.9 }}
                             onClick={toggleAdBlocker}
                             className={cn(

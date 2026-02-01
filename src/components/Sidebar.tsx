@@ -55,6 +55,7 @@ export const Sidebar: React.FC = () => {
 
     return (
         <motion.div
+            id="sidebar"
             style={{ width }}
             className={cn(
                 "relative flex flex-col h-full z-20 overflow-hidden border-r border-white/5",

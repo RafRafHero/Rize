@@ -44,6 +44,7 @@ const FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20
 electron_1.app.userAgentFallback = FIREFOX_UA;
 // Enterprise AdBlocker Logic
 let blockerEngine = null;
+const activeSessions = new Set();
 const getBlocker = async () => {
     if (blockerEngine)
         return blockerEngine;
@@ -66,20 +67,35 @@ const getBlocker = async () => {
 };
 const enableAdBlocker = async (ses) => {
     const blocker = await getBlocker();
-    blocker.enableBlockingInSession(ses);
-    // For cosmetic filtering, adblocker-electron requires a preload script.
-    try {
-        const { PRELOAD_PATH } = require('@cliqz/adblocker-electron/dist/commonjs/preload_path');
-        const currentPreloads = ses.getPreloads();
-        if (!currentPreloads.includes(PRELOAD_PATH)) {
-            ses.setPreloads([...currentPreloads, PRELOAD_PATH]);
-        }
-        console.log('[Main] AdBlocker (with cosmetic filtering) enabled for session');
+    const settings = store.get('settings');
+    // Re-initialize engine with current whitelist to ensure it's up to date
+    // Note: ElectronBlocker.addFilters is additive, so we should ideally start fresh
+    // or use a separate whitelist mechanism if available. 
+    // For now, we will add the filters. To avoid duplicates, we could reset the engine, 
+    // but let's try adding them first.
+    if (settings?.adBlockWhitelist && settings.adBlockWhitelist.length > 0) {
+        const filters = settings.adBlockWhitelist.map((d) => `@@||${d}^$document`);
+        blocker.addFilters(filters);
     }
-    catch (e) {
-        console.error('[Main] Failed to set AdBlocker preload', e);
-    }
+    // Use the modern preload script API for the adblocker
+    blocker.enableBlockingInSession(ses, {
+        usePreloadScript: true,
+    });
+    console.log('[Main] AdBlocker enabled for session with modern preload API');
 };
+electron_1.ipcMain.on('update-adblocker-settings', async () => {
+    console.log('[Main] Updating AdBlocker settings...');
+    blockerEngine = null; // Reset engine to clear previous whitelist filters
+    const activeSessionsList = Array.from(activeSessions);
+    for (const ses of activeSessionsList) {
+        const blocker = await getBlocker();
+        blocker.disableBlockingInSession(ses);
+        const settings = store.get('settings');
+        if (settings?.adBlockEnabled) {
+            await enableAdBlocker(ses);
+        }
+    }
+});
 // Profile Management Configuration
 const originalUserDataPath = electron_1.app.getPath('userData');
 const profilesDir = path_1.default.join(originalUserDataPath, 'profiles');
@@ -197,37 +213,66 @@ const applyYouTubeNetworkBlocker = (ses) => {
     });
 };
 const setupOptimizations = (ses) => {
+    activeSessions.add(ses);
     applyUASpoofing(ses);
     applyAdBlocking(ses);
     applyYouTubeNetworkBlocker(ses);
     // Inject Performance Optimization Script
     const optimizationPath = path_1.default.join(electron_1.app.getAppPath(), 'public', 'optimization-inject.js');
-    const currentPreloads = ses.getPreloads();
-    if (!currentPreloads.includes(optimizationPath)) {
-        ses.setPreloads([...currentPreloads, optimizationPath]);
-    }
+    ses.registerPreloadScript({
+        id: 'performance-optimizations',
+        type: 'frame',
+        filePath: optimizationPath
+    });
 };
 // Initialize app then setup store and optimizations
 electron_1.app.whenReady().then(async () => {
     await initElectronStore();
-    const { session, globalShortcut } = require('electron');
-    setupOptimizations(session.defaultSession);
+    // Register main preload script using modern API
+    electron_1.session.defaultSession.registerPreloadScript({
+        id: 'main-preload',
+        type: 'frame',
+        filePath: path_1.default.join(__dirname, 'preload.js')
+    });
+    setupOptimizations(electron_1.session.defaultSession);
     // Use a persistent partition for incognito to allow caching within the session
-    setupOptimizations(session.fromPartition('incognito'));
+    const incognitoSession = electron_1.session.fromPartition('incognito');
+    incognitoSession.registerPreloadScript({
+        id: 'main-preload-incognito',
+        type: 'frame',
+        filePath: path_1.default.join(__dirname, 'preload.js')
+    });
+    setupOptimizations(incognitoSession);
     // Ensure any other sessions (like profile partitions) also get the spoofing and blocking
     electron_1.app.on('session-created', (ses) => {
         setupOptimizations(ses);
     });
     // Register Incognito Shortcut
-    globalShortcut.register('CommandOrControl+Shift+N', () => {
+    electron_1.globalShortcut.register('CommandOrControl+Shift+N', () => {
         launchIncognito();
     });
     // Register Ghost Search Shortcut
-    globalShortcut.register('CommandOrControl+K', () => {
+    const searchRegistered = electron_1.globalShortcut.register('CommandOrControl+K', () => {
         mainWindow?.webContents.send('toggle-ghost-search');
     });
-    setupDownloadManager(session.defaultSession);
+    if (searchRegistered) {
+        console.log('Search Shortcut Registered: CommandOrControl+K');
+    }
+    else {
+        console.warn('Failed to register Search Shortcut');
+    }
+    // Register Gemini Summarize Shortcut
+    electron_1.globalShortcut.register('Alt+S', () => {
+        // 1. Ask Main Window to get context from active view
+        mainWindow?.webContents.send('gemini-get-context');
+    });
+    setupDownloadManager(electron_1.session.defaultSession);
     createWindow(isIncognitoProcess);
+});
+// Bypass certificate trust issues for local development/antivirus interference
+electron_1.app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
+    event.preventDefault();
+    callback(true);
 });
 // Apply protections to every new web content (including webviews)
 electron_1.app.on('web-contents-created', (event, contents) => {
@@ -581,6 +626,17 @@ electron_1.ipcMain.on('show-context-menu', (event, params) => {
 electron_1.ipcMain.on('open-dev-tools', (event) => {
     event.sender.openDevTools();
 });
+// --- Gemini Context Bridge ---
+electron_1.ipcMain.on('gemini-summarize-request', () => {
+    mainWindow?.webContents.send('gemini-get-context');
+});
+electron_1.ipcMain.on('gemini-context-data', (_event, data) => {
+    // Forward to Gemini Panel (which is also in MainWindow renderer, but we broadcast it)
+    // The GeminiPanel component will pick this up
+    mainWindow?.webContents.send('gemini-inject-context', data);
+    // Also ensure Gemini Panel is open
+    mainWindow?.webContents.send('open-gemini-panel');
+});
 electron_1.ipcMain.handle('get-suggestions', async (_event, query) => {
     if (!query || !query.trim())
         return [];
@@ -667,8 +723,58 @@ electron_1.ipcMain.on('switch-to-profile-selector', () => {
     }
     delete config.alwaysOpenProfile; // Reset always open if we explicitly go back
     fs_1.default.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
-    electron_1.app.relaunch({ args: process.argv.slice(1).filter(a => !a.startsWith('--profile-id=')) });
+    // Relaunch
+    electron_1.app.relaunch({ args: process.argv.slice(1).filter(a => !a.startsWith('--profile-id=')).concat(['--selection-mode=true']) });
     electron_1.app.exit(0);
+});
+// --- Import Data IPC ---
+electron_1.ipcMain.handle('import-browser-data', async (_event, browser) => {
+    const localAppData = process.env.LOCALAPPDATA || '';
+    let bookmarksPath = '';
+    if (browser === 'chrome') {
+        bookmarksPath = path_1.default.join(localAppData, 'Google', 'Chrome', 'User Data', 'Default', 'Bookmarks');
+    }
+    else if (browser === 'edge') {
+        bookmarksPath = path_1.default.join(localAppData, 'Microsoft', 'Edge', 'User Data', 'Default', 'Bookmarks');
+    }
+    if (!fs_1.default.existsSync(bookmarksPath)) {
+        console.log(`[Import] No bookmarks found for ${browser} at ${bookmarksPath}`);
+        return { bookmarks: [] };
+    }
+    try {
+        const data = JSON.parse(fs_1.default.readFileSync(bookmarksPath, 'utf-8'));
+        const bookmarks = [];
+        // Check checksum or roots to be valid?
+        if (!data.roots) {
+            return { bookmarks: [] };
+        }
+        const processNode = (node, folderName) => {
+            if (node.type === 'url') {
+                bookmarks.push({
+                    id: (0, crypto_1.randomUUID)(),
+                    title: node.name,
+                    url: node.url,
+                    favicon: `https://www.google.com/s2/favicons?sz=64&domain_url=${node.url}` // Auto-fetch favicon on frontend or store url
+                });
+            }
+            else if (node.type === 'folder' && node.children) {
+                node.children.forEach((child) => processNode(child, node.name));
+            }
+        };
+        // Chrome structure has 'roots' -> 'bookmark_bar', 'other', 'synced'
+        if (data.roots.bookmark_bar)
+            processNode(data.roots.bookmark_bar);
+        if (data.roots.other)
+            processNode(data.roots.other);
+        if (data.roots.synced)
+            processNode(data.roots.synced);
+        console.log(`[Import] Found ${bookmarks.length} bookmarks from ${browser}`);
+        return { bookmarks };
+    }
+    catch (e) {
+        console.error(`[Import] Failed to read ${browser} bookmarks`, e);
+        return { bookmarks: [], error: 'Failed to read file' };
+    }
 });
 electron_1.ipcMain.handle('delete-profile', async (_event, id) => {
     if (!fs_1.default.existsSync(rootConfigPath))

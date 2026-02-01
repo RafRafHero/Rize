@@ -3,18 +3,26 @@ import { useStore } from '../store/useStore';
 import { cn } from '../lib/utils';
 import { NewTab } from './NewTab';
 import { ImageViewer } from './ImageViewer';
+import { Settings } from './Settings';
 import { safeWebViewAction } from '../lib/webview-utils';
 import { ErrorBoundary } from './ErrorBoundary';
+import { PermissionPopup } from './PermissionPopup';
 
 interface BrowserViewProps {
     tabId: string;
     isActive: boolean;
+    isVisible?: boolean;
     onMount: (webview: any) => void;
 }
 
-export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMount }) => {
+export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVisible = true, onMount }) => {
     const webviewRef = useRef<any>(null);
     const [isReady, setIsReady] = React.useState(false);
+    const [permissionReq, setPermissionReq] = React.useState<{
+        permission: string;
+        request: any;
+        origin: string;
+    } | null>(null);
     const { updateTab, tabs, triggerNavFeedback, addTab, recordVisit } = useStore();
 
     const tab = tabs.find(t => t.id === tabId);
@@ -51,7 +59,8 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
 
             const handleDidNavigate = (e: any) => {
                 if (e.url !== currentUrl && !e.url.startsWith('data:') && e.url !== 'about:blank') {
-                    updateTab(tabId, { url: e.url });
+                    // Clear thumbnail on navigation so we don't show stale data
+                    updateTab(tabId, { url: e.url, thumbnailUrl: undefined });
                 }
             };
 
@@ -68,6 +77,29 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
             wv.addEventListener('did-navigate', handleDidNavigate);
             wv.addEventListener('dom-ready', handleDomReady);
 
+            const adHideCSS = `
+                .video-ads, .ytp-ad-module, .ytp-ad-image-overlay, 
+                .ytp-ad-skip-button-slot, .ytd-promoted-sparkles-web-renderer,
+                .ytp-ad-overlay-container, .ytp-ad-message-container, #player-ads, ytd-ad-slot-renderer {
+                    display: none !important;
+                }
+            `;
+
+            const injectAdBlockCSS = () => {
+                if (wv.getURL().includes('youtube.com')) {
+                    wv.insertCSS(adHideCSS);
+                }
+            };
+
+            const handleDidStartNavigation = () => injectAdBlockCSS();
+            const handleDidFailLoad = (e: any) => {
+                if (e.errorCode === -3) return; // Ignore "Aborted" (caused by adblocker)
+            };
+
+            wv.addEventListener('did-start-navigation', handleDidStartNavigation);
+            wv.addEventListener('did-navigate', injectAdBlockCSS);
+            wv.addEventListener('did-fail-load', handleDidFailLoad);
+
             const handleMouseUp = (e: any) => {
                 if (e.button === 3 && wv.canGoBack()) {
                     safeWebViewAction(wv, (w) => w.goBack());
@@ -80,6 +112,31 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
             wv.addEventListener('context-menu', handleContextMenu);
             wv.addEventListener('mouseup', handleMouseUp);
 
+            const handlePermissionRequest = (e: any) => {
+                const origin = new URL(wv.getURL()).hostname;
+                const permissions = useStore.getState().sitePermissions || {};
+
+                // key: origin -> permission -> granted (true/false)
+                if (permissions[origin] && permissions[origin][e.permission] === true) {
+                    console.log(`Auto-allowing ${e.permission} for ${origin}`);
+                    e.request.allow();
+                    return;
+                }
+
+                // If explicitly denied previously, we might want to auto-deny or still ask?
+                // Standard browser behavior is usually to remember Deny too.
+                // For now, let's just asking if not explicitly allowed.
+
+                console.log('Permission requested:', e.permission);
+                setPermissionReq({
+                    permission: e.permission,
+                    request: e.request,
+                    origin
+                });
+            };
+
+            wv.addEventListener('permission-request', handlePermissionRequest);
+
             return () => {
                 wv.removeEventListener('did-start-loading', handleDidStartLoading);
                 wv.removeEventListener('did-stop-loading', handleDidStopLoading);
@@ -89,6 +146,10 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
                 wv.removeEventListener('context-menu', handleContextMenu);
                 wv.removeEventListener('mouseup', handleMouseUp);
                 wv.removeEventListener('dom-ready', handleDomReady);
+                wv.removeEventListener('did-start-navigation', handleDidStartNavigation);
+                wv.removeEventListener('did-navigate', injectAdBlockCSS);
+                wv.removeEventListener('did-fail-load', handleDidFailLoad);
+                wv.removeEventListener('permission-request', handlePermissionRequest);
             };
         }
     }, [onMount, tabId]);
@@ -131,6 +192,39 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
             ipc.on('go-forward', onGoForward);
 
             ipc.on('create-tab', onCreateTab);
+
+            // Gemini Context Extraction
+            ipc.on('gemini-get-context', () => {
+                if (!isActive || !webviewRef.current) return;
+                const wv = webviewRef.current;
+
+                try {
+                    // Execute script to get clean text
+                    wv.executeJavaScript(`
+                        (() => {
+                            const title = document.title;
+                            const url = window.location.href;
+                            // Basic content extraction: get text from paragraphs to avoid navigation/ads noise
+                            const paragraphs = Array.from(document.querySelectorAll('p')).map(p => p.innerText).join('\\n\\n');
+                            const selection = window.getSelection().toString();
+                            
+                            // Fallback if no paragraphs found, just take body text but limit it
+                            const rawText = document.body.innerText;
+                            const content = selection || (paragraphs.length > 50 ? paragraphs : rawText);
+                            
+                            return {
+                                title,
+                                url,
+                                content: content.substring(0, 5000) // Limit to 5000 chars
+                            };
+                        })()
+                    `).then((data: any) => {
+                        ipc.send('gemini-context-data', data);
+                    }).catch((e: any) => console.error('Failed to extract context for Gemini', e));
+                } catch (e) {
+                    console.error('Gemini extraction failed', e);
+                }
+            });
         }
 
         return () => {
@@ -145,32 +239,41 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
         };
     }, [isActive, addTab]);
 
-    // Sync URL changes from Store -> Webview
+    // Focus webview when active
     useEffect(() => {
-        const wv = webviewRef.current;
-        if (wv && currentUrl) {
-            safeWebViewAction(wv, (w) => {
-                const currentWvUrl = w.getURL();
-                if (currentWvUrl !== currentUrl && isActive) {
-                    w.loadURL(currentUrl);
-                }
-            });
-        }
-        // Focus webview when active
-        if (isActive && wv) {
-            // Short timeout to ensure it's mounted/visible
+        if (isActive && webviewRef.current) {
             setTimeout(() => {
                 try {
-                    wv.focus();
-                } catch (e) {
-                    // ignore
-                }
+                    webviewRef.current.focus();
+                } catch (e) { }
             }, 50);
         }
-    }, [currentUrl, isActive]);
+    }, [isActive]);
+
+    // Snapshot Logic: Capture when switching AWAY from this tab
+    const prevActiveRef = useRef(isActive);
+    useEffect(() => {
+        if (prevActiveRef.current && !isActive && webviewRef.current) {
+            const wv = webviewRef.current;
+            // distinct non-blocking capture
+            requestAnimationFrame(() => {
+                try {
+                    if (wv && wv.capturePage) {
+                        wv.capturePage().then((image: any) => {
+                            if (image && !image.isEmpty()) {
+                                updateTab(tabId, { thumbnailUrl: image.toDataURL() });
+                            }
+                        }).catch((e: any) => console.error('Snapshot failed', e));
+                    }
+                } catch (e) { }
+            });
+        }
+        prevActiveRef.current = isActive;
+    }, [isActive, tabId, updateTab]);
 
     const showNewTab = !currentUrl || currentUrl === '';
     const isImageView = currentUrl.startsWith('rizo://view-image');
+    const isSettingsPage = currentUrl === 'rizo://settings';
     const imageSrc = isImageView ? new URL(currentUrl).searchParams.get('src') || '' : '';
 
     // Fetch preload path
@@ -221,13 +324,13 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
         <ErrorBoundary name={`Tab ${tabId}`}>
             <div
                 className={cn(
-                    "flex-1 relative w-full h-full bg-background transition-all duration-300",
-                    isActive ? "visible opacity-100" : "invisible opacity-0 pointer-events-none absolute inset-0"
+                    "flex-1 relative w-full h-full bg-transparent transition-all duration-300",
+                    isVisible ? "visible opacity-100" : "invisible opacity-0 pointer-events-none absolute inset-0"
                 )}
                 onMouseUp={handleContainerMouseUp}
             >
-                {/* Webview */}
-                {!isImageView && (
+                {/* Webview or Internal Pages */}
+                {!isImageView && !isSettingsPage && (
                     <webview
                         ref={webviewRef as any}
                         key={useStore.getState().activeProfileId || 'default'}
@@ -236,9 +339,9 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
                             showNewTab ? "hidden" : "flex",
                             isGhostSearchOpen && "pointer-events-none"
                         )}
-                        src="about:blank"
+                        src={currentUrl || 'about:blank'}
                         preload={preloadPath ? `file://${preloadPath.replace(/\\/g, '/')}` : undefined}
-                        webpreferences="contextIsolation=yes, nodeIntegration=no"
+                        webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=yes"
                         partition={partition}
                         {...({
                             allowpopups: "true"
@@ -254,11 +357,46 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, onMou
                 )}
 
                 {/* New Tab Overlay */}
-                {showNewTab && (
+                {showNewTab && !isSettingsPage && (
                     <div className="absolute inset-0 z-20 overflow-auto">
                         <NewTab tabId={tabId} />
                     </div>
                 )}
+
+                {/* Settings Page */}
+                {isSettingsPage && (
+                    <div className="absolute inset-0 z-20 overflow-auto bg-background">
+                        <Settings />
+                    </div>
+                )}
+
+                <PermissionPopup
+                    request={permissionReq}
+                    onAllow={() => {
+                        if (permissionReq) {
+                            permissionReq.request.allow();
+                            setPermissionReq(null);
+                        }
+                    }}
+                    onAllowAlways={() => {
+                        if (permissionReq) {
+                            permissionReq.request.allow();
+                            // Update Store
+                            useStore.getState().setSitePermission(
+                                permissionReq.origin,
+                                permissionReq.permission,
+                                true
+                            );
+                            setPermissionReq(null);
+                        }
+                    }}
+                    onDeny={() => {
+                        if (permissionReq) {
+                            permissionReq.request.deny();
+                            setPermissionReq(null);
+                        }
+                    }}
+                />
             </div>
         </ErrorBoundary>
     );

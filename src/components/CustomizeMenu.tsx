@@ -297,16 +297,6 @@ export const CustomizeMenu: React.FC<CustomizeMenuProps> = ({ onClose }) => {
                             </div>
                         )}
 
-                        <div className="flex items-center justify-between p-3 bg-secondary/30 rounded-xl">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-background rounded-lg text-primary"><Star size={16} /></div>
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium">Bookmarks Bar</span>
-                                    <span className="text-xs text-muted-foreground">Show bar below navbar</span>
-                                </div>
-                            </div>
-                            <Switch checked={settings.showBookmarksBar} onChange={v => updateSettings({ showBookmarksBar: v })} />
-                        </div>
 
                         <div className="flex items-center justify-between p-3 bg-secondary/30 rounded-xl">
                             <div className="flex items-center gap-3">

@@ -35,8 +35,10 @@ export const AdBlockerPanel: React.FC = () => {
     const handleToggleWhitelist = () => {
         if (isWhitelisted) {
             removeFromWhitelist(domain);
+            console.log(`[${domain}] toggled adblocker`);
         } else if (domain) {
             addToWhitelist(domain);
+            console.log(`[${domain}] untoggled adblocker`);
         }
     };
 
@@ -77,7 +79,10 @@ export const AdBlockerPanel: React.FC = () => {
                                 <span className="text-[10px] text-muted-foreground">Block ads on all websites</span>
                             </div>
                             <button
-                                onClick={toggleAdBlockerEnabled}
+                                onClick={() => {
+                                    toggleAdBlockerEnabled();
+                                    console.log(`Adblocker ${!settings.adBlockEnabled ? 'toggled' : 'untoggled'} globally`);
+                                }}
                                 className={cn(
                                     "p-2 rounded-xl transition-all duration-300",
                                     settings.adBlockEnabled

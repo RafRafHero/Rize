@@ -36,11 +36,28 @@ window.addEventListener('load', async () => {
 
 // Hardened YouTube Ad-Blocker
 if (window.location.hostname.includes('youtube.com')) {
-    // 1. Script Injection (Auto-Skip)
-    setInterval(() => {
+    // 1. CSS Cosmetic Surgery - Injected early via insertCSS too, but here for redundancy
+    const style = document.createElement('style');
+    style.innerHTML = `
+        .video-ads, 
+        .ytp-ad-module, 
+        .ytp-ad-overlay-container,
+        .ytp-ad-message-container,
+        #player-ads,
+        ytd-ad-slot-renderer,
+        .ytp-ad-skip-button-slot,
+        .ytd-promoted-sparkles-web-renderer { 
+            display: none !important; 
+        }
+    `;
+    document.head.appendChild(style);
+
+    // 2. MutationObserver for instant ad-skipping
+    const observer = new MutationObserver(() => {
         const video = document.querySelector('video');
         const adSkipButton = document.querySelector('.ytp-ad-skip-button') as HTMLElement;
         const adInterrupting = document.querySelector('.ad-interrupting');
+        const adOverlay = document.querySelector('.ytp-ad-module');
 
         if (video) {
             if (adInterrupting || adSkipButton) {
@@ -49,28 +66,24 @@ if (window.location.hostname.includes('youtube.com')) {
                     video.currentTime = video.duration;
                 }
                 // Also try to click the skip button if it exists
-                adSkipButton?.click();
+                if (adSkipButton) {
+                    adSkipButton.click();
+                    console.log('[AdBlock] Ad Skipped Instantly');
+                }
             }
+        }
+
+        // Aggressive removal of ad overlays
+        if (adOverlay && adOverlay.innerHTML !== '') {
+            adOverlay.innerHTML = ''; // Kill the ad content
         }
 
         // Handle overlay ads (static images/banners)
         const overlayAds = document.querySelectorAll('.ytp-ad-overlay-close-button');
         overlayAds.forEach((btn: any) => btn.click());
-    }, 500);
+    });
 
-    // 2. CSS Cosmetic Surgery
-    const style = document.createElement('style');
-    style.innerHTML = `
-        .video-ads, 
-        .ytp-ad-module, 
-        .ytp-ad-overlay-container,
-        .ytp-ad-message-container,
-        #player-ads,
-        ytd-ad-slot-renderer { 
-            display: none !important; 
-        }
-    `;
-    document.head.appendChild(style);
+    observer.observe(document.body, { childList: true, subtree: true });
 }
 
 // Password Capture Logic for Webviews

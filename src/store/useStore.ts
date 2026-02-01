@@ -64,6 +64,7 @@ export interface Settings {
     neverSavePasswords: string[];
     adBlockEnabled: boolean;
     adBlockWhitelist: string[];
+    showHomeButton: boolean;
 }
 
 export interface Tab {
@@ -74,6 +75,7 @@ export interface Tab {
     canGoBack: boolean;
     canGoForward: boolean;
     favicon?: string;
+    thumbnailUrl?: string;
 }
 
 export interface DownloadItem {
@@ -96,8 +98,7 @@ interface BrowserState {
     bookmarks: Bookmark[];
     favorites: Bookmark[];
     settings: Settings;
-    isSettingsOpen: boolean;
-    settingsSection: 'general' | 'bookmarks';
+    settingsSection: 'general' | 'bookmarks' | 'appearance';
     navFeedback: 'back' | 'forward' | null;
 
     // UI State
@@ -116,6 +117,7 @@ interface BrowserState {
     activeInternalPage: 'history' | 'passwords' | null;
     capturedPassword: { url: string; username: string; password: string } | null;
 
+    isGlassCardsOverviewOpen: boolean;
     isGhostSearchOpen: boolean;
     toggleGhostSearch: (open?: boolean) => void;
 
@@ -135,11 +137,12 @@ interface BrowserState {
 
     // Settings Actions
     updateSettings: (settings: Partial<Settings>) => void;
-    toggleSettings: (section?: 'general' | 'bookmarks') => void;
+    toggleSettings: (section?: 'general' | 'bookmarks' | 'appearance') => void;
     triggerNavFeedback: (type: 'back' | 'forward') => void;
 
     // Gemini Actions
     toggleGeminiPanel: () => void;
+    toggleGlassCards: (open?: boolean) => void;
     toggleAdBlocker: () => void;
     setInternalPage: (page: 'history' | 'passwords' | null) => void;
     clearCapturedPassword: () => void;
@@ -158,6 +161,14 @@ interface BrowserState {
 
     // History Actions
     recordVisit: (url: string, title: string, favicon?: string) => void;
+
+    // Permission Actions
+    sitePermissions: Record<string, Record<string, boolean>>; // origin -> permission -> granted
+    setSitePermission: (origin: string, permission: string, allowed: boolean) => void;
+
+    // Onboarding
+    firstRunCompleted: boolean | null; // null = loading/unknown
+    setFirstRunCompleted: (completed: boolean) => void;
 }
 
 export const useStore = create<BrowserState>((set, get) => ({
@@ -206,9 +217,9 @@ export const useStore = create<BrowserState>((set, get) => ({
         geminiPanelWidth: 400,
         neverSavePasswords: [],
         adBlockEnabled: true,
-        adBlockWhitelist: []
+        adBlockWhitelist: [],
+        showHomeButton: false
     },
-    isSettingsOpen: false,
     settingsSection: 'general',
     isDownloadsOpen: false,
     isGeminiPanelOpen: false,
@@ -224,6 +235,11 @@ export const useStore = create<BrowserState>((set, get) => ({
     activeProfileId: null,
     selectionMode: false,
     isGhostSearchOpen: false,
+    isGlassCardsOverviewOpen: false,
+
+    toggleGlassCards: (open) => set((state) => ({
+        isGlassCardsOverviewOpen: open !== undefined ? open : !state.isGlassCardsOverviewOpen
+    })),
 
     toggleGhostSearch: (open) => set((state) => ({
         isGhostSearchOpen: open !== undefined ? open : !state.isGhostSearchOpen
@@ -321,13 +337,16 @@ export const useStore = create<BrowserState>((set, get) => ({
         const enabled = !state.settings.adBlockEnabled;
         const updated = { ...state.settings, adBlockEnabled: enabled };
         (window as any).electron?.store.set('settings', updated);
+        (window as any).electron?.ipcRenderer.send('update-adblocker-settings');
         return { settings: updated };
     }),
 
     addToWhitelist: (domain) => set((state) => {
+        if (state.settings.adBlockWhitelist.includes(domain)) return {};
         const whitelist = [...state.settings.adBlockWhitelist, domain];
         const updated = { ...state.settings, adBlockWhitelist: whitelist };
         (window as any).electron?.store.set('settings', updated);
+        (window as any).electron?.ipcRenderer.send('update-adblocker-settings');
         return { settings: updated };
     }),
 
@@ -335,6 +354,7 @@ export const useStore = create<BrowserState>((set, get) => ({
         const whitelist = state.settings.adBlockWhitelist.filter(d => d !== domain);
         const updated = { ...state.settings, adBlockWhitelist: whitelist };
         (window as any).electron?.store.set('settings', updated);
+        (window as any).electron?.ipcRenderer.send('update-adblocker-settings');
         return { settings: updated };
     }),
 
@@ -348,12 +368,11 @@ export const useStore = create<BrowserState>((set, get) => ({
         const updated = { ...state.settings, ...newSettings };
         (window as any).electron?.store.set('settings', updated);
 
-        // Theme switching logic removed for Universal Liquid Glass
-        // if (newSettings.homePageConfig?.mode === 'night' || newSettings.homePageConfig?.mode === 'sunset') {
-        //     updated.theme = 'dark';
-        // } else if (newSettings.homePageConfig?.mode === 'day') {
-        //     updated.theme = 'light';
-        // }
+        if (newSettings.homePageConfig?.mode === 'night' || newSettings.homePageConfig?.mode === 'sunset') {
+            updated.theme = 'dark';
+        } else if (newSettings.homePageConfig?.mode === 'day') {
+            updated.theme = 'light';
+        }
 
         if (updated.theme === 'dark' || (updated.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
             document.documentElement.classList.add('dark');
@@ -366,15 +385,37 @@ export const useStore = create<BrowserState>((set, get) => ({
         document.documentElement.classList.remove('mode-day', 'mode-night', 'mode-sunset');
         if (mode) {
             document.documentElement.classList.add(`mode-${mode}`);
+        } else if (updated.theme === 'dark' || (updated.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            document.documentElement.classList.add('mode-night');
         }
 
         return { settings: updated };
     }),
 
-    toggleSettings: (section) => set((state) => ({
-        isSettingsOpen: !state.isSettingsOpen,
-        settingsSection: section || 'general'
-    })),
+    toggleSettings: (section) => set((state) => {
+        const settingsUrl = 'rizo://settings';
+        const existingTab = state.tabs.find(t => t.url === settingsUrl);
+
+        if (existingTab) {
+            return { activeTabId: existingTab.id, settingsSection: section || 'general' };
+        }
+
+        const newTab: Tab = {
+            id: Date.now().toString(),
+            url: settingsUrl,
+            title: 'Settings',
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            favicon: 'Rizo logo.png'
+        };
+
+        return {
+            tabs: [...state.tabs, newTab],
+            activeTabId: newTab.id,
+            settingsSection: section || 'general'
+        };
+    }),
 
     triggerNavFeedback: (type) => {
         set({ navFeedback: type });
@@ -439,6 +480,25 @@ export const useStore = create<BrowserState>((set, get) => ({
         (window as any).electron?.store.set('siteHistory', newHistory);
         return { siteHistory: newHistory };
     }),
+
+    sitePermissions: {},
+    setSitePermission: (origin, permission, allowed) => set((state) => {
+        const newPermissions = {
+            ...state.sitePermissions,
+            [origin]: {
+                ...(state.sitePermissions[origin] || {}),
+                [permission]: allowed
+            }
+        };
+        (window as any).electron?.store.set('sitePermissions', newPermissions);
+        return { sitePermissions: newPermissions };
+    }),
+
+    firstRunCompleted: null, // Default to null (loading)
+    setFirstRunCompleted: (completed) => set(() => {
+        (window as any).electron?.store.set('firstRunCompleted', completed);
+        return { firstRunCompleted: completed };
+    }),
 }));
 
 // Initialize store
@@ -485,12 +545,11 @@ export const initStore = async () => {
                         isEditMode: false
                     }
                 };
-                // Theme logic removed for Universal Liquid Glass
-                // if (updated.homePageConfig?.mode === 'night' || updated.homePageConfig?.mode === 'sunset') {
-                //     updated.theme = 'dark';
-                // } else if (updated.homePageConfig?.mode === 'day') {
-                //     updated.theme = 'light';
-                // }
+                if (updated.homePageConfig?.mode === 'night' || updated.homePageConfig?.mode === 'sunset') {
+                    updated.theme = 'dark';
+                } else if (updated.homePageConfig?.mode === 'day') {
+                    updated.theme = 'light';
+                }
 
                 if (updated.theme === 'dark' || (updated.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
                     document.documentElement.classList.add('dark');
@@ -534,6 +593,20 @@ export const initStore = async () => {
         const sites = await electron.store.get('siteHistory');
         if (sites) {
             useStore.setState({ siteHistory: sites as HistoryItem[] });
+        }
+
+        // Restore Site Permissions
+        const permissions = await electron.store.get('sitePermissions');
+        if (permissions) {
+            useStore.setState({ sitePermissions: permissions });
+        }
+        if (permissions) {
+            useStore.setState({ sitePermissions: permissions });
+        }
+
+        const firstRun = await electron.store.get('firstRunCompleted');
+        if (firstRun !== undefined) {
+            useStore.setState({ firstRunCompleted: firstRun });
         }
     }
 };

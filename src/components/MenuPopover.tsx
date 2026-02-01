@@ -51,6 +51,14 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
             }
         },
         {
+            label: settings.showBookmarksBar ? 'Hide Bookmarks Bar' : 'Show Bookmarks Bar',
+            icon: Book,
+            onClick: () => {
+                useStore.getState().updateSettings({ showBookmarksBar: !settings.showBookmarksBar });
+                onClose();
+            }
+        },
+        {
             label: 'Bookmark Manager',
             icon: Book,
             onClick: () => {

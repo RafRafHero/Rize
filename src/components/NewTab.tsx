@@ -146,7 +146,7 @@ export const NewTab: React.FC<NewTabProps> = ({ tabId }) => {
 
     return (
         <div
-            className="flex flex-col items-center justify-center min-h-screen w-full bg-background transition-colors duration-500 overflow-hidden relative"
+            className="flex flex-col items-center justify-center min-h-screen w-full bg-transparent transition-colors duration-500 overflow-hidden relative"
             style={{ background: getBackgroundStyle() }}
         >
             {config.mode ? (

@@ -1,16 +1,186 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/useStore';
-import { Monitor, Moon, Sun, Search, Book, Trash2, Check, Sparkles, Key } from 'lucide-react';
+import { Monitor, Moon, Sun, Search, Book, Trash2, Check, Sparkles, Key, Globe } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { PasswordsPage } from './PasswordsPage';
+
+// --- Shortcut Recorder Component ---
+const ShortcutRecorder = ({ value, label, onSave }: { value: string, label: string, onSave: (val: string) => void }) => {
+    const [isRecording, setIsRecording] = useState(false);
+    const [tempValue, setTempValue] = useState(value);
+    const [isModified, setIsModified] = useState(false);
+
+    const formatForDisplay = (val: string) => {
+        return val.replace('CommandOrControl', 'Ctrl/⌘')
+            .replace('Control', 'Ctrl')
+            .replace('Shift', '⇧')
+            .replace('Alt', '⌥')
+            .replace('ArrowUp', '↑')
+            .replace('ArrowDown', '↓')
+            .replace('ArrowLeft', '←')
+            .replace('ArrowRight', '→')
+            .replace('+', ' + ');
+    };
+
+    useEffect(() => {
+        if (!isRecording) return;
+
+        // Suspend global shortcuts in main process so they don't intercept keys
+        (window as any).rizoAPI?.ipcRenderer.send('set-shortcuts-enabled', false);
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const modifiers = [];
+            if (e.ctrlKey || e.metaKey) modifiers.push('CommandOrControl');
+            if (e.shiftKey) modifiers.push('Shift');
+            if (e.altKey) modifiers.push('Alt');
+
+            // --- Key Detection ---
+            let key = '';
+
+            // Modifier Check: If strictly a modifier, just preview
+            if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) {
+                setTempValue(modifiers.join('+'));
+                return;
+            }
+
+            // Detect Key
+            if (e.code.startsWith('Key')) {
+                key = e.code.slice(3).toUpperCase();
+            } else if (e.code.startsWith('Digit')) {
+                key = e.code.slice(5);
+            } else if (e.key === ' ') {
+                key = 'Space';
+            } else {
+                const functionalKeys: Record<string, string> = {
+                    'ArrowUp': 'Up',
+                    'ArrowDown': 'Down',
+                    'ArrowLeft': 'Left',
+                    'ArrowRight': 'Right',
+                    'Enter': 'Return',
+                    'Escape': 'Esc',
+                    'Backspace': 'Backspace',
+                    'Delete': 'Delete',
+                    'Tab': 'Tab',
+                };
+                key = functionalKeys[e.key] || (e.key.length === 1 ? e.key.toUpperCase() : e.key);
+            }
+
+            if (!key) return;
+
+            const finalSequence = [...modifiers, key].join('+');
+            setTempValue(finalSequence);
+            setIsModified(true);
+            setIsRecording(false);
+
+            // Resume shortcuts after recording
+            (window as any).rizoAPI?.ipcRenderer.send('set-shortcuts-enabled', true);
+        };
+
+        window.addEventListener('keydown', handleKeyDown, true);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown, true);
+            (window as any).rizoAPI?.ipcRenderer.send('set-shortcuts-enabled', true);
+        };
+    }, [isRecording]);
+
+    return (
+        <div className="flex flex-col gap-2 p-4 rounded-xl border border-border/40 bg-secondary/5 transition-all">
+            <div className="flex items-center justify-between">
+                <div className="flex flex-col">
+                    <span className="text-sm font-medium">{label}</span>
+                    <span className="text-[10px] text-muted-foreground">Click the field and press keys</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                            if (!isRecording) {
+                                setTempValue(''); // Clear for new recording
+                                setIsRecording(true);
+                            } else {
+                                setIsRecording(false);
+                            }
+                        }}
+                        className={cn(
+                            "min-w-[140px] px-4 py-2 rounded-xl text-xs font-mono border-2 transition-all flex items-center justify-center gap-2 relative overflow-hidden",
+                            isRecording
+                                ? "bg-primary/20 border-primary text-primary shadow-[0_0_15px_rgba(30,144,255,0.2)]"
+                                : "bg-background border-border/40 hover:border-primary/40 text-foreground shadow-sm"
+                        )}
+                    >
+                        {isRecording ? (
+                            <div className="flex items-center gap-2">
+                                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-ping" />
+                                <span className="opacity-80">
+                                    {tempValue ? formatForDisplay(tempValue) : "..."}
+                                </span>
+                            </div>
+                        ) : (
+                            formatForDisplay(tempValue || value)
+                        )}
+                    </motion.button>
+
+                    <div className="flex items-center gap-1">
+                        {isModified && !isRecording && (
+                            <motion.button
+                                initial={{ opacity: 0, scale: 0.5 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => {
+                                    onSave(tempValue);
+                                    setIsModified(false);
+                                }}
+                                className="p-2 bg-primary text-primary-foreground rounded-lg shadow-lg shadow-primary/20"
+                                title="Save Keybind"
+                            >
+                                <Check size={14} />
+                            </motion.button>
+                        )}
+
+                        <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => {
+                                setTempValue('');
+                                setIsModified(true);
+                                setIsRecording(false);
+                            }}
+                            className="p-2 hover:bg-destructive/10 hover:text-destructive rounded-lg transition-colors text-muted-foreground"
+                            title="Reset"
+                        >
+                            <Trash2 size={14} />
+                        </motion.button>
+                    </div>
+                </div>
+            </div>
+            {isRecording && (
+                <motion.div
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-[9px] text-primary/70 font-medium uppercase tracking-widest pl-1"
+                >
+                    Press any combination of keys...
+                </motion.div>
+            )}
+        </div>
+    );
+};
 
 export const Settings: React.FC = () => {
     const { settings, updateSettings, bookmarks, removeBookmark, settingsSection } = useStore();
     const [appVersion, setAppVersion] = useState<string>('');
+    const [isDefaultBrowser, setIsDefaultBrowser] = useState<boolean | null>(null);
 
     useEffect(() => {
         (window as any).rizoAPI?.ipcRenderer.invoke('get-app-version').then((v: string) => setAppVersion(v));
+        (window as any).rizoAPI?.isDefaultBrowser?.().then((val: boolean) => setIsDefaultBrowser(val));
     }, []);
 
     const activeSection = settingsSection;
@@ -18,7 +188,6 @@ export const Settings: React.FC = () => {
         useStore.setState({ settingsSection: section });
     };
 
-    // Tab switch animation
     const TabButton = ({ id, label, icon: Icon }: any) => (
         <button
             onClick={() => setActiveSection(id)}
@@ -58,6 +227,55 @@ export const Settings: React.FC = () => {
                 <div className="max-w-3xl">
                     {activeSection === 'general' ? (
                         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            {/* Default Browser */}
+                            <section className="space-y-4">
+                                <div className="flex flex-col">
+                                    <h3 className="text-base font-semibold flex items-center gap-2">
+                                        <Globe size={18} className="text-primary" /> Default Browser
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground ml-7">Set Rizo as your default web browser</p>
+                                </div>
+                                <div className="ml-7 p-4 rounded-2xl border border-border/40 bg-secondary/10 backdrop-blur-md">
+                                    {isDefaultBrowser === null ? (
+                                        <div className="text-sm text-muted-foreground">Checking status...</div>
+                                    ) : isDefaultBrowser ? (
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center">
+                                                <Check size={16} className="text-green-500" />
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-medium text-green-500">Rizo is your default browser</span>
+                                                <span className="text-[10px] text-muted-foreground">All links will open in Rizo</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-medium">Rizo is not your default browser</span>
+                                                <span className="text-[10px] text-muted-foreground">Click to open system settings</span>
+                                            </div>
+                                            <motion.button
+                                                whileHover={{ scale: 1.05 }}
+                                                whileTap={{ scale: 0.95 }}
+                                                onClick={async () => {
+                                                    await (window as any).rizoAPI?.setAsDefault();
+                                                    // Recheck after a slight delay
+                                                    setTimeout(async () => {
+                                                        const val = await (window as any).rizoAPI?.isDefaultBrowser?.();
+                                                        setIsDefaultBrowser(val);
+                                                    }, 2000);
+                                                }}
+                                                className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg shadow-md"
+                                            >
+                                                Make Default
+                                            </motion.button>
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+
+                            <div className="h-px bg-border/40 ml-7" />
+
                             {/* Search Engine */}
                             <section className="space-y-4">
                                 <div className="flex flex-col">
@@ -88,6 +306,107 @@ export const Settings: React.FC = () => {
                                             <span className="text-[10px] text-muted-foreground">Selected</span>
                                         </button>
                                     ))}
+                                </div>
+                            </section>
+
+                            {/* Keyboard Shortcuts */}
+                            <section className="space-y-4">
+                                <div className="flex flex-col">
+                                    <h3 className="text-base font-semibold flex items-center gap-2">
+                                        <Key size={18} className="text-primary" /> Keyboard Shortcuts
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground ml-7">Customize your browsing shortcuts</p>
+                                </div>
+                                <div className="ml-7 space-y-4">
+                                    <div className="grid grid-cols-1 gap-4">
+                                        <ShortcutRecorder
+                                            label="Ghost Search"
+                                            value={settings.keybinds?.ghostSearch || 'CommandOrControl+Space'}
+                                            onSave={(newVal) => {
+                                                updateSettings({
+                                                    keybinds: { ...settings.keybinds, ghostSearch: newVal }
+                                                });
+                                                (window as any).rizoAPI?.ipcRenderer.send('update-shortcuts');
+                                            }}
+                                        />
+
+                                        <ShortcutRecorder
+                                            label="Tabs Showcase"
+                                            value={settings.keybinds?.tabsShowcase || 'CommandOrControl+Shift+T'}
+                                            onSave={(newVal) => {
+                                                updateSettings({
+                                                    keybinds: { ...settings.keybinds, tabsShowcase: newVal }
+                                                });
+                                            }}
+                                        />
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground italic">
+                                        Tip: Use "CommandOrControl" to work on both Mac and Windows.
+                                    </p>
+                                </div>
+                            </section>
+
+                            <div className="h-px bg-border/40 ml-7" />
+
+                            {/* Tab Hibernation */}
+                            <section className="space-y-4">
+                                <div className="flex flex-col">
+                                    <h3 className="text-base font-semibold flex items-center gap-2">
+                                        <Moon size={18} className="text-primary" /> Tab Hibernation
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground ml-7">Save resources by sleeping inactive tabs</p>
+                                </div>
+                                <div className="ml-7 space-y-4">
+                                    {/* Toggle Card with blur */}
+                                    <div className="p-4 rounded-2xl border border-border/40 bg-secondary/10 backdrop-blur-md">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-medium">Enable Tab Sleep</span>
+                                                <span className="text-[10px] text-muted-foreground">Hibernate tabs after inactivity</span>
+                                            </div>
+                                            {/* Premium Toggle Switch */}
+                                            <motion.button
+                                                onClick={() => updateSettings({ tabSleepEnabled: !settings.tabSleepEnabled })}
+                                                className={cn(
+                                                    "w-12 h-7 rounded-full relative transition-colors duration-200",
+                                                    settings.tabSleepEnabled ? "bg-primary" : "bg-muted"
+                                                )}
+                                            >
+                                                <motion.div
+                                                    className="w-5 h-5 bg-white rounded-full absolute top-1 shadow-md"
+                                                    animate={{ left: settings.tabSleepEnabled ? 26 : 4 }}
+                                                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                                                />
+                                            </motion.button>
+                                        </div>
+                                    </div>
+
+                                    {/* Freeze Timer Slider */}
+                                    {settings.tabSleepEnabled && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            className="p-4 rounded-2xl border border-border/40 bg-secondary/10 backdrop-blur-md"
+                                        >
+                                            <div className="flex items-center justify-between mb-3">
+                                                <span className="text-sm font-medium">Sleep after</span>
+                                                <span className="text-sm font-mono text-primary">{settings.freezeMinutes} min</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="1"
+                                                max="60"
+                                                value={settings.freezeMinutes}
+                                                onChange={(e) => updateSettings({ freezeMinutes: parseInt(e.target.value) })}
+                                                className="w-full h-2 bg-muted rounded-full appearance-none cursor-pointer accent-primary"
+                                            />
+                                            <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                                                <span>1 min</span>
+                                                <span>60 min</span>
+                                            </div>
+                                        </motion.div>
+                                    )}
                                 </div>
                             </section>
 

@@ -29,7 +29,8 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
         ...(isUpdateReady ? [{
             label: 'Restart to Install Update',
             icon: RefreshCw,
-            className: 'text-red-400 font-bold',
+            className: 'bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-500/20',
+            iconClassName: 'text-white',
             onClick: () => {
                 (window as any).rizoAPI?.ipcRenderer.invoke('quit-and-install');
                 onClose();
@@ -116,9 +117,12 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
                             <button
                                 key={item.label}
                                 onClick={item.onClick}
-                                className="w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl hover:bg-secondary transition-colors text-foreground"
+                                className={cn(
+                                    "w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-xl transition-all text-foreground",
+                                    item.className ? item.className : "hover:bg-secondary"
+                                )}
                             >
-                                <item.icon size={16} className="text-muted-foreground" />
+                                <item.icon size={16} className={cn(item.iconClassName ? item.iconClassName : "text-muted-foreground")} />
                                 {item.label}
                             </button>
                         ))}

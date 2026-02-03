@@ -10,7 +10,10 @@ on:
 
 jobs:
   release:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
 
     permissions:
       contents: write
@@ -31,4 +34,6 @@ jobs:
       - name: Build and Publish
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: npm run publish-always
+        run: |
+          npm run build
+          npx electron-builder --publish always

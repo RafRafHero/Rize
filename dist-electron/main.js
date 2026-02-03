@@ -19,6 +19,53 @@ const initElectronStore = async () => {
     store = new Store();
     return store;
 };
+const registerAppShortcuts = (mainWindow) => {
+    electron_1.globalShortcut.unregisterAll();
+    const settings = store?.get('settings');
+    const ghostSearchKey = settings?.keybinds?.ghostSearch || 'CommandOrControl+Space';
+    // Register Ghost Search Shortcut
+    try {
+        const searchRegistered = electron_1.globalShortcut.register(ghostSearchKey, () => {
+            mainWindow?.webContents.send('toggle-ghost-search');
+        });
+        if (searchRegistered) {
+            console.log(`[Main] Ghost Search Shortcut Registered: ${ghostSearchKey}`);
+        }
+        else {
+            console.warn(`[Main] Failed to register Ghost Search Shortcut: ${ghostSearchKey}`);
+        }
+    }
+    catch (err) {
+        console.error(`[Main] Invalid shortcut sequence: ${ghostSearchKey}`, err);
+    }
+    // Register Incognito Shortcut
+    electron_1.globalShortcut.register('CommandOrControl+Shift+N', () => {
+        // This is handled via launchIncognito but we need to ensure it's registered
+        // Actually launchIncognito is defined later, let's just make sure it's callable
+        global.launchIncognito?.();
+    });
+    // Register Gemini Summarize Shortcut
+    electron_1.globalShortcut.register('Alt+S', () => {
+        mainWindow?.webContents.send('gemini-get-context');
+    });
+    // Register Find in Page Shortcut (Ctrl+F)
+    electron_1.globalShortcut.register('CommandOrControl+F', () => {
+        mainWindow?.webContents.send('toggle-find-bar');
+    });
+    // Register Zoom Shortcuts
+    electron_1.globalShortcut.register('CommandOrControl+Plus', () => {
+        mainWindow?.webContents.send('zoom-in');
+    });
+    electron_1.globalShortcut.register('CommandOrControl+=', () => {
+        mainWindow?.webContents.send('zoom-in');
+    });
+    electron_1.globalShortcut.register('CommandOrControl+-', () => {
+        mainWindow?.webContents.send('zoom-out');
+    });
+    electron_1.globalShortcut.register('CommandOrControl+0', () => {
+        mainWindow?.webContents.send('zoom-reset');
+    });
+};
 // initialization happens in app.ready
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (require('electron-squirrel-startup')) {
@@ -229,13 +276,13 @@ const setupOptimizations = (ses) => {
 // --- Auto Updater Logic ---
 electron_updater_1.autoUpdater.autoDownload = true;
 electron_updater_1.autoUpdater.autoInstallOnAppQuit = false;
-electron_updater_1.autoUpdater.on('update-available', () => {
-    console.log('[AutoUpdater] Update available.');
+electron_updater_1.autoUpdater.on('update-available', (info) => {
+    console.log('[AutoUpdater] Update available:', info.version);
+    mainWindow?.webContents.send('update-available', info.version);
 });
 electron_updater_1.autoUpdater.on('update-downloaded', (info) => {
-    console.log('[AutoUpdater] Update downloaded:', info);
-    // Send both signals: 'update-available' for immediate Red Dot, 'update-ready' for install
-    mainWindow?.webContents.send('update-available', info.version);
+    console.log('[AutoUpdater] Update downloaded:', info.version);
+    // Send ready signal for the "Restart to Install" button
     mainWindow?.webContents.send('update-ready', info.version);
 });
 electron_updater_1.autoUpdater.on('error', (err) => {
@@ -277,44 +324,23 @@ electron_1.app.whenReady().then(async () => {
     electron_1.app.on('session-created', (ses) => {
         setupOptimizations(ses);
     });
-    // Register Incognito Shortcut
-    electron_1.globalShortcut.register('CommandOrControl+Shift+N', () => {
-        launchIncognito();
-    });
-    // Register Ghost Search Shortcut
-    const searchRegistered = electron_1.globalShortcut.register('CommandOrControl+K', () => {
-        mainWindow?.webContents.send('toggle-ghost-search');
-    });
-    if (searchRegistered) {
-        console.log('Search Shortcut Registered: CommandOrControl+K');
-    }
-    else {
-        console.warn('Failed to register Search Shortcut');
-    }
-    // Register Gemini Summarize Shortcut
-    electron_1.globalShortcut.register('Alt+S', () => {
-        // 1. Ask Main Window to get context from active view
-        mainWindow?.webContents.send('gemini-get-context');
-    });
-    // Register Find in Page Shortcut (Ctrl+F)
-    electron_1.globalShortcut.register('CommandOrControl+F', () => {
-        mainWindow?.webContents.send('toggle-find-bar');
-    });
-    // Register Zoom Shortcuts
-    electron_1.globalShortcut.register('CommandOrControl+Plus', () => {
-        mainWindow?.webContents.send('zoom-in');
-    });
-    electron_1.globalShortcut.register('CommandOrControl+=', () => {
-        mainWindow?.webContents.send('zoom-in');
-    });
-    electron_1.globalShortcut.register('CommandOrControl+-', () => {
-        mainWindow?.webContents.send('zoom-out');
-    });
-    electron_1.globalShortcut.register('CommandOrControl+0', () => {
-        mainWindow?.webContents.send('zoom-reset');
-    });
+    registerAppShortcuts(mainWindow);
     setupDownloadManager(electron_1.session.defaultSession);
     createWindow(isIncognitoProcess);
+});
+electron_1.ipcMain.on('update-shortcuts', () => {
+    console.log('[Main] Updating dynamic shortcuts...');
+    registerAppShortcuts(mainWindow);
+});
+electron_1.ipcMain.on('set-shortcuts-enabled', (event, enabled) => {
+    if (enabled) {
+        console.log('[Main] Shortcuts enabled');
+        registerAppShortcuts(mainWindow);
+    }
+    else {
+        console.log('[Main] Shortcuts disabled (recording mode)');
+        electron_1.globalShortcut.unregisterAll();
+    }
 });
 // Bypass certificate trust issues for local development/antivirus interference
 electron_1.app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
@@ -1022,10 +1048,5 @@ electron_1.app.on('activate', () => {
         createWindow();
     }
 });
-electron_updater_1.autoUpdater.on('update-available', (info) => {
-    mainWindow?.webContents.send('update-available', info.version);
-});
-electron_updater_1.autoUpdater.on('update-downloaded', (info) => {
-    mainWindow?.webContents.send('update-ready', info.version);
-});
+// Bottom of file cleaned up
 //# sourceMappingURL=main.js.map

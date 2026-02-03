@@ -119,6 +119,9 @@ contextBridge.exposeInMainWorld('rizoAPI', {
         ipcRenderer.on('update-available', (_event, version) => callback(version));
     },
     quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
+    // Default Browser
+    isDefaultBrowser: () => ipcRenderer.invoke('is-default-browser'),
+    setAsDefault: () => ipcRenderer.invoke('set-as-default'),
     ipcRenderer: {
         send: (channel: string, ...args: any[]) => ipcRenderer.send(channel, ...args),
         on: (channel: string, func: (...args: any[]) => void) => {

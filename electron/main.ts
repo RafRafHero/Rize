@@ -14,6 +14,57 @@ const initElectronStore = async () => {
   return store;
 };
 
+const registerAppShortcuts = (mainWindow: BrowserWindow | null) => {
+  globalShortcut.unregisterAll();
+  const settings = store?.get('settings');
+  const ghostSearchKey = settings?.keybinds?.ghostSearch || 'CommandOrControl+Space';
+
+  // Register Ghost Search Shortcut
+  try {
+    const searchRegistered = globalShortcut.register(ghostSearchKey, () => {
+      mainWindow?.webContents.send('toggle-ghost-search');
+    });
+    if (searchRegistered) {
+      console.log(`[Main] Ghost Search Shortcut Registered: ${ghostSearchKey}`);
+    } else {
+      console.warn(`[Main] Failed to register Ghost Search Shortcut: ${ghostSearchKey}`);
+    }
+  } catch (err) {
+    console.error(`[Main] Invalid shortcut sequence: ${ghostSearchKey}`, err);
+  }
+
+  // Register Incognito Shortcut
+  globalShortcut.register('CommandOrControl+Shift+N', () => {
+    // This is handled via launchIncognito but we need to ensure it's registered
+    // Actually launchIncognito is defined later, let's just make sure it's callable
+    (global as any).launchIncognito?.();
+  });
+
+  // Register Gemini Summarize Shortcut
+  globalShortcut.register('Alt+S', () => {
+    mainWindow?.webContents.send('gemini-get-context');
+  });
+
+  // Register Find in Page Shortcut (Ctrl+F)
+  globalShortcut.register('CommandOrControl+F', () => {
+    mainWindow?.webContents.send('toggle-find-bar');
+  });
+
+  // Register Zoom Shortcuts
+  globalShortcut.register('CommandOrControl+Plus', () => {
+    mainWindow?.webContents.send('zoom-in');
+  });
+  globalShortcut.register('CommandOrControl+=', () => {
+    mainWindow?.webContents.send('zoom-in');
+  });
+  globalShortcut.register('CommandOrControl+-', () => {
+    mainWindow?.webContents.send('zoom-out');
+  });
+  globalShortcut.register('CommandOrControl+0', () => {
+    mainWindow?.webContents.send('zoom-reset');
+  });
+};
+
 // initialization happens in app.ready
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -34,10 +85,18 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 if (process.defaultApp) {
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient('rizo', process.execPath, [path.resolve(process.argv[1])]);
+    app.setAsDefaultProtocolClient('http', process.execPath, [path.resolve(process.argv[1])]);
+    app.setAsDefaultProtocolClient('https', process.execPath, [path.resolve(process.argv[1])]);
   }
 } else {
   app.setAsDefaultProtocolClient('rizo');
+  app.setAsDefaultProtocolClient('http');
+  app.setAsDefaultProtocolClient('https');
 }
+
+// Deep link URL holder (for external links)
+let deeplinkUrl: string | null = null;
+
 
 // Global User-Agent spoofing to bypass Google's Electron detection
 const FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0';
@@ -311,51 +370,117 @@ app.whenReady().then(async () => {
     setupOptimizations(ses);
   });
 
-  // Register Incognito Shortcut
-  globalShortcut.register('CommandOrControl+Shift+N', () => {
-    launchIncognito();
-  });
-
-  // Register Ghost Search Shortcut
-  const searchRegistered = globalShortcut.register('CommandOrControl+K', () => {
-    mainWindow?.webContents.send('toggle-ghost-search');
-  });
-
-  if (searchRegistered) {
-    console.log('Search Shortcut Registered: CommandOrControl+K');
-  } else {
-    console.warn('Failed to register Search Shortcut');
-  }
-
-  // Register Gemini Summarize Shortcut
-  globalShortcut.register('Alt+S', () => {
-    // 1. Ask Main Window to get context from active view
-    mainWindow?.webContents.send('gemini-get-context');
-  });
-
-  // Register Find in Page Shortcut (Ctrl+F)
-  globalShortcut.register('CommandOrControl+F', () => {
-    mainWindow?.webContents.send('toggle-find-bar');
-  });
-
-  // Register Zoom Shortcuts
-  globalShortcut.register('CommandOrControl+Plus', () => {
-    mainWindow?.webContents.send('zoom-in');
-  });
-  globalShortcut.register('CommandOrControl+=', () => {
-    mainWindow?.webContents.send('zoom-in');
-  });
-  globalShortcut.register('CommandOrControl+-', () => {
-    mainWindow?.webContents.send('zoom-out');
-  });
-  globalShortcut.register('CommandOrControl+0', () => {
-    mainWindow?.webContents.send('zoom-reset');
-  });
+  registerAppShortcuts(mainWindow);
 
   setupDownloadManager(session.defaultSession);
-
   createWindow(isIncognitoProcess);
 });
+
+ipcMain.on('update-shortcuts', () => {
+  console.log('[Main] Updating dynamic shortcuts...');
+  registerAppShortcuts(mainWindow);
+});
+
+ipcMain.on('set-shortcuts-enabled', (event, enabled) => {
+  if (enabled) {
+    console.log('[Main] Shortcuts enabled');
+    registerAppShortcuts(mainWindow);
+  } else {
+    console.log('[Main] Shortcuts disabled (recording mode)');
+    globalShortcut.unregisterAll();
+  }
+});
+
+// --- Tab Sleep Logic ---
+// Track last accessed time per tab and check for inactive tabs
+const tabAccessMap = new Map<string, number>(); // tabId -> lastAccessed timestamp
+
+ipcMain.on('tab-accessed', (event, tabId: string) => {
+  tabAccessMap.set(tabId, Date.now());
+  console.log(`[TabSleep] Tab ${tabId} accessed`);
+});
+
+ipcMain.on('wake-tab', (event, tabId: string) => {
+  tabAccessMap.set(tabId, Date.now());
+  console.log(`[TabSleep] Tab ${tabId} woken up`);
+  // The renderer should handle the actual visual wake-up
+});
+
+// Hibernation checker runs every 30 seconds
+setInterval(() => {
+  const settings = store?.get('settings');
+  if (!settings?.tabSleepEnabled) return;
+
+  const freezeMinutes = settings?.freezeMinutes || 5;
+  const thresholdMs = freezeMinutes * 60 * 1000;
+  const now = Date.now();
+
+  tabAccessMap.forEach((lastAccessed, tabId) => {
+    if (now - lastAccessed > thresholdMs) {
+      console.log(`[TabSleep] Tab ${tabId} is now sleeping (inactive for ${freezeMinutes}min)`);
+      mainWindow?.webContents.send('sleep-tab', tabId);
+      tabAccessMap.delete(tabId); // Remove so we don't keep sending
+    }
+  });
+}, 30000);
+
+// --- Default Browser IPC Handlers ---
+ipcMain.handle('is-default-browser', () => {
+  return app.isDefaultProtocolClient('http');
+});
+
+ipcMain.handle('set-as-default', () => {
+  // On Windows 10+, this opens System Settings for the user to select manually
+  // As apps can't force themselves as default anymore
+  if (process.platform === 'win32') {
+    shell.openExternal('ms-settings:defaultapps');
+  } else if (process.platform === 'darwin') {
+    // On macOS, Electron's API usually works directly
+    app.setAsDefaultProtocolClient('http');
+    app.setAsDefaultProtocolClient('https');
+  } else {
+    // Linux - try xdg-settings
+    const { exec } = require('child_process');
+    exec('xdg-settings set default-web-browser rizo.desktop');
+  }
+  return true;
+});
+
+// Deep link handling for external URLs
+const handleDeepLink = (url: string) => {
+  // Focus the main window and open the URL
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    mainWindow.webContents.send('open-url', url);
+  } else {
+    // Store URL to open after window is created
+    deeplinkUrl = url;
+  }
+};
+
+// Handle open-url event on macOS
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
+// Handle second-instance (Windows deep linking)
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine) => {
+    // Windows: URL is passed as argument
+    const url = commandLine.find(arg => arg.startsWith('http://') || arg.startsWith('https://'));
+    if (url) {
+      handleDeepLink(url);
+    } else if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
 // Bypass certificate trust issues for local development/antivirus interference
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {

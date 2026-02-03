@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { motion } from 'framer-motion';
-import { X, Globe, FolderPlus, FolderMinus, ArrowRight, Trash2 } from 'lucide-react';
+import { X, Globe, FolderPlus, FolderMinus, ArrowRight, Trash2, Moon } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Tab, useStore } from '../store/useStore';
 
@@ -70,7 +70,8 @@ export const SortableTab: React.FC<SortableTabProps> = ({ tab, isActive, isCompa
                         ? (isCompact ? "bg-white/20 shadow-inner" : "bg-background border-border shadow-sm")
                         : "",
                     isCompact ? "w-10 h-10 p-0 rounded-2xl" : "h-12 w-full px-2 gap-3 border border-transparent",
-                    isIncognito ? (isActive ? "text-white" : "text-white/60 hover:text-white") : ""
+                    isIncognito ? (isActive ? "text-white" : "text-white/60 hover:text-white") : "",
+                    tab.isSleeping && "opacity-70 grayscale"
                 )}
             >
                 {isActive && !isCompact && (
@@ -84,11 +85,21 @@ export const SortableTab: React.FC<SortableTabProps> = ({ tab, isActive, isCompa
                     <div className="absolute -bottom-1 w-1 h-1 bg-primary rounded-full" />
                 )}
 
-                <div className="shrink-0 flex items-center justify-center w-5 h-5 rounded overflow-hidden text-muted-foreground">
+                <div className="shrink-0 flex items-center justify-center w-5 h-5 rounded overflow-hidden text-muted-foreground relative">
                     {tab.favicon ? (
                         <img src={tab.favicon} alt="" className="w-full h-full object-cover" />
                     ) : (
                         <Globe size={16} />
+                    )}
+                    {/* Sleep Indicator */}
+                    {tab.isSleeping && (
+                        <motion.div
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="absolute -bottom-0.5 -right-0.5 bg-primary text-primary-foreground rounded-full p-0.5"
+                        >
+                            <Moon size={8} />
+                        </motion.div>
                     )}
                 </div>
 

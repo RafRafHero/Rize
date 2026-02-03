@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import React, { useRef, useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Navbar } from './components/Navbar';
 import { BrowserView } from './components/BrowserView';
 import { Settings } from './components/Settings';
@@ -21,7 +21,9 @@ import { GlassCardsOverlay } from './components/GlassCardsOverlay';
 import { OnboardingOverlay } from './components/OnboardingOverlay';
 
 function App() {
-  const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setUpdateReady } = useStore();
+  const { tabs, activeTabId, setActiveTab, updateTab, addTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setUpdateReady, sleepTab, wakeTab } = useStore();
+
+  const [showDefaultBanner, setShowDefaultBanner] = useState(false);
 
   useEffect(() => {
     const ipc = (window as any).rizoAPI?.ipcRenderer;
@@ -41,16 +43,89 @@ function App() {
           useStore.setState({ capturedPassword: data });
         }
       });
+
+      // Tab Sleep IPC listener
+      ipc.on('sleep-tab', (_event: any, tabId: string) => {
+        sleepTab(tabId);
+      });
+
+      // Deep link: open URL in new tab
+      ipc.on('open-url', (_event: any, url: string) => {
+        addTab(url);
+      });
     }
+
+    // Check if Rizo is the default browser
+    (window as any).rizoAPI?.isDefaultBrowser?.().then((isDefault: boolean) => {
+      if (!isDefault) {
+        setShowDefaultBanner(true);
+      }
+    });
   }, []);
+
+  // Notify main process when active tab changes (for Tab Sleep tracking)
+  useEffect(() => {
+    const ipc = (window as any).rizoAPI?.ipcRenderer;
+    if (ipc && activeTabId) {
+      // Wake the tab if it was sleeping
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      if (activeTab?.isSleeping) {
+        wakeTab(activeTabId);
+        ipc.send('wake-tab', activeTabId);
+      }
+      // Notify main process of tab access
+      ipc.send('tab-accessed', activeTabId);
+    }
+  }, [activeTabId, tabs, wakeTab]);
 
   const webviewRefs = useRef<{ [key: string]: any }>({});
 
   // Glass Cards Hotkey (Ctrl+Shift+T)
   useEffect(() => {
+    const matchShortcut = (e: KeyboardEvent, shortcut: string) => {
+      const parts = shortcut.toLowerCase().split('+');
+      const isMac = navigator.userAgent.toUpperCase().indexOf('MAC') >= 0;
+
+      const hasCmdOrCtrl = parts.includes('commandorcontrol');
+      const needsCtrl = parts.includes('control') || parts.includes('ctrl') || (hasCmdOrCtrl && !isMac);
+      const needsMeta = parts.includes('command') || parts.includes('cmd') || parts.includes('meta') || (hasCmdOrCtrl && isMac);
+      const needsShift = parts.includes('shift');
+      const needsAlt = parts.includes('alt');
+      const targetKey = parts.find(p => !['control', 'ctrl', 'commandorcontrol', 'command', 'cmd', 'shift', 'alt', 'meta'].includes(p));
+
+      const ctrlActive = e.ctrlKey;
+      const metaActive = e.metaKey;
+      const shiftActive = e.shiftKey;
+      const altActive = e.altKey;
+
+      if (needsCtrl && !ctrlActive) return false;
+      if (needsMeta && !metaActive) return false;
+      if (needsShift && !shiftActive) return false;
+      if (needsAlt && !altActive) return false;
+
+      if (targetKey) {
+        const tk = targetKey.toLowerCase();
+        const currentKey = e.key.toLowerCase();
+        const currentCode = e.code.toLowerCase();
+
+        // Special case: Space
+        if ((tk === 'space' || tk === ' ') && e.key === ' ') {
+          // match
+        } else {
+          // Match by key (e.g., "k") or by physical code (e.g., "keyk")
+          const keyMatch = currentKey === tk;
+          const codeMatch = currentCode === tk || currentCode === `key${tk}` || currentCode === `digit${tk}`;
+
+          if (!keyMatch && !codeMatch) return false;
+        }
+      }
+
+      return true;
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Check for Ctrl+Shift+T (Windows/Linux) or Cmd+Shift+T (Mac)
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+      const showcaseKey = settings.keybinds?.tabsShowcase || 'CommandOrControl+Shift+T';
+      if (matchShortcut(e, showcaseKey)) {
         e.preventDefault();
 
         const isOpen = useStore.getState().isGlassCardsOverviewOpen;
@@ -81,7 +156,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleGlassCards, updateTab]);
+  }, [toggleGlassCards, updateTab, settings]);
 
   const activeTab = tabs.find(t => t.id === activeTabId);
 
@@ -207,6 +282,42 @@ function App() {
 
             {/* Main Content Area */}
             <div className="flex-1 flex flex-col h-full overflow-hidden">
+              {/* Default Browser Suggestion Banner */}
+              <AnimatePresence>
+                {showDefaultBanner && (
+                  <motion.div
+                    initial={{ y: -60, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: -60, opacity: 0 }}
+                    transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+                    className="flex items-center justify-between gap-3 px-4 py-2.5 bg-blue-500/10 border-b border-blue-500/20 backdrop-blur-md"
+                  >
+                    <div className="flex items-center gap-3">
+                      <img src="/Rizo logo.png" alt="Rizo" className="w-5 h-5" />
+                      <span className="text-sm text-foreground">Rizo isn't your default browser.</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={async () => {
+                          await (window as any).rizoAPI?.setAsDefault();
+                          setShowDefaultBanner(false);
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground rounded-lg shadow-md"
+                      >
+                        Set as Default
+                      </motion.button>
+                      <button
+                        onClick={() => setShowDefaultBanner(false)}
+                        className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <Navbar
                 onReload={handleReload}
                 onBack={handleBack}

@@ -73,6 +73,12 @@ export interface Settings {
     adBlockEnabled: boolean;
     adBlockWhitelist: string[];
     showHomeButton: boolean;
+    keybinds: {
+        ghostSearch: string;
+        tabsShowcase: string;
+    };
+    tabSleepEnabled: boolean;
+    freezeMinutes: number;
 }
 
 export interface Tab {
@@ -85,6 +91,8 @@ export interface Tab {
     favicon?: string;
     thumbnailUrl?: string;
     groupId?: string;
+    lastAccessed: number;
+    isSleeping: boolean;
 }
 
 export interface DownloadItem {
@@ -188,10 +196,14 @@ interface BrowserState {
     deleteTabGroup: (id: string) => void;
     moveTabToGroup: (tabId: string, groupId: string | undefined) => void;
     reorderTabs: (activeId: string, overId: string) => void;
+
+    // Tab Sleep Actions
+    sleepTab: (id: string) => void;
+    wakeTab: (id: string) => void;
 }
 
 export const useStore = create<BrowserState>((set, get) => ({
-    tabs: [{ id: '1', url: '', title: 'New Tab', isLoading: false, canGoBack: false, canGoForward: false }],
+    tabs: [{ id: '1', url: '', title: 'New Tab', isLoading: false, canGoBack: false, canGoForward: false, lastAccessed: Date.now(), isSleeping: false }],
     tabGroups: [],
     activeTabId: '1',
     bookmarks: [],
@@ -238,7 +250,13 @@ export const useStore = create<BrowserState>((set, get) => ({
         neverSavePasswords: [],
         adBlockEnabled: true,
         adBlockWhitelist: [],
-        showHomeButton: false
+        showHomeButton: false,
+        keybinds: {
+            ghostSearch: 'CommandOrControl+Space',
+            tabsShowcase: 'CommandOrControl+Shift+T'
+        },
+        tabSleepEnabled: true,
+        freezeMinutes: 5
     },
     settingsSection: 'general',
     isDownloadsOpen: false,
@@ -276,6 +294,8 @@ export const useStore = create<BrowserState>((set, get) => ({
             isLoading: false,
             canGoBack: false,
             canGoForward: false,
+            lastAccessed: Date.now(),
+            isSleeping: false,
         };
         return { tabs: [...state.tabs, newTab], activeTabId: newTab.id };
     }),
@@ -292,6 +312,8 @@ export const useStore = create<BrowserState>((set, get) => ({
                 isLoading: false,
                 canGoBack: false,
                 canGoForward: false,
+                lastAccessed: Date.now(),
+                isSleeping: false,
             };
             return { tabs: [newTab], activeTabId: newTab.id };
         }
@@ -430,7 +452,9 @@ export const useStore = create<BrowserState>((set, get) => ({
             isLoading: false,
             canGoBack: false,
             canGoForward: false,
-            favicon: 'Rizo logo.png'
+            favicon: 'Rizo logo.png',
+            lastAccessed: Date.now(),
+            isSleeping: false,
         };
 
         return {
@@ -595,6 +619,15 @@ export const useStore = create<BrowserState>((set, get) => ({
         }
         return {};
     }),
+
+    // --- Tab Sleep Actions ---
+    sleepTab: (id) => set((state) => ({
+        tabs: state.tabs.map(t => t.id === id ? { ...t, isSleeping: true } : t)
+    })),
+
+    wakeTab: (id) => set((state) => ({
+        tabs: state.tabs.map(t => t.id === id ? { ...t, isSleeping: false, lastAccessed: Date.now() } : t)
+    })),
 }));
 
 // Initialize store
@@ -667,7 +700,7 @@ export const initStore = async () => {
         const state = useStore.getState();
         if (!state.tabs || state.tabs.length === 0) {
             useStore.setState({
-                tabs: [{ id: '1', url: '', title: 'Home Page', isLoading: false, canGoBack: false, canGoForward: false }],
+                tabs: [{ id: '1', url: '', title: 'Home Page', isLoading: false, canGoBack: false, canGoForward: false, lastAccessed: Date.now(), isSleeping: false }],
                 activeTabId: '1'
             });
         }

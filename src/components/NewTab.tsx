@@ -73,7 +73,7 @@ export const NewTab: React.FC<NewTabProps> = ({ tabId }) => {
                     .slice(0, 5)
                     .map(h => h.url);
 
-                const googleResults = await (window as any).electron?.ipcRenderer.invoke('get-suggestions', searchInput);
+                const googleResults = await (window as any).rizoAPI?.ipcRenderer.invoke('get-suggestions', searchInput);
                 const allResults = [...new Set([...historyMatches, ...(googleResults || [])])].slice(0, 8);
 
                 setSuggestions(allResults);

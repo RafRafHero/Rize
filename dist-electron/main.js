@@ -172,13 +172,13 @@ const createWindow = (isIncognito = false) => {
         queryParams.set('selectionMode', 'true');
     const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
     if (process.env.VITE_DEV_SERVER_URL) {
-        mainWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}${queryString}`);
+        mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL + queryString);
     }
     else {
-        const indexPath = path_1.default.join(__dirname, '../dist/index.html');
-        mainWindow.loadURL(`file://${indexPath}${queryString}`);
+        // Production Path Logic - User Requested Fix
+        const prodPath = path_1.default.join(electron_1.app.getAppPath(), 'dist/index.html');
+        mainWindow.loadFile(prodPath, { search: queryParams.toString() });
     }
-    // Open the DevTools.
     // mainWindow.webContents.openDevTools();
 };
 const applyUASpoofing = (ses) => {
@@ -234,7 +234,9 @@ electron_updater_1.autoUpdater.on('update-available', () => {
 });
 electron_updater_1.autoUpdater.on('update-downloaded', (info) => {
     console.log('[AutoUpdater] Update downloaded:', info);
-    mainWindow?.webContents.send('update-downloaded', info.version);
+    // Send both signals: 'update-available' for immediate Red Dot, 'update-ready' for install
+    mainWindow?.webContents.send('update-available', info.version);
+    mainWindow?.webContents.send('update-ready', info.version);
 });
 electron_updater_1.autoUpdater.on('error', (err) => {
     console.error('[AutoUpdater] Error:', err);
@@ -293,6 +295,23 @@ electron_1.app.whenReady().then(async () => {
     electron_1.globalShortcut.register('Alt+S', () => {
         // 1. Ask Main Window to get context from active view
         mainWindow?.webContents.send('gemini-get-context');
+    });
+    // Register Find in Page Shortcut (Ctrl+F)
+    electron_1.globalShortcut.register('CommandOrControl+F', () => {
+        mainWindow?.webContents.send('toggle-find-bar');
+    });
+    // Register Zoom Shortcuts
+    electron_1.globalShortcut.register('CommandOrControl+Plus', () => {
+        mainWindow?.webContents.send('zoom-in');
+    });
+    electron_1.globalShortcut.register('CommandOrControl+=', () => {
+        mainWindow?.webContents.send('zoom-in');
+    });
+    electron_1.globalShortcut.register('CommandOrControl+-', () => {
+        mainWindow?.webContents.send('zoom-out');
+    });
+    electron_1.globalShortcut.register('CommandOrControl+0', () => {
+        mainWindow?.webContents.send('zoom-reset');
     });
     setupDownloadManager(electron_1.session.defaultSession);
     createWindow(isIncognitoProcess);
@@ -1002,5 +1021,11 @@ electron_1.app.on('activate', () => {
     if (electron_1.BrowserWindow.getAllWindows().length === 0) {
         createWindow();
     }
+});
+electron_updater_1.autoUpdater.on('update-available', (info) => {
+    mainWindow?.webContents.send('update-available', info.version);
+});
+electron_updater_1.autoUpdater.on('update-downloaded', (info) => {
+    mainWindow?.webContents.send('update-ready', info.version);
 });
 //# sourceMappingURL=main.js.map

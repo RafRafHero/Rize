@@ -184,13 +184,13 @@ const createWindow = (isIncognito = false) => {
   const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
 
   if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}${queryString}`);
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL + queryString);
   } else {
-    const indexPath = path.join(__dirname, '../dist/index.html');
-    mainWindow.loadURL(`file://${indexPath}${queryString}`);
+    // Production Path Logic - User Requested Fix
+    const prodPath = path.join(app.getAppPath(), 'dist/index.html');
+    mainWindow.loadFile(prodPath, { search: queryParams.toString() });
   }
 
-  // Open the DevTools.
   // mainWindow.webContents.openDevTools();
 };
 
@@ -250,13 +250,15 @@ const setupOptimizations = (ses: Electron.Session) => {
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = false;
 
-autoUpdater.on('update-available', () => {
-  console.log('[AutoUpdater] Update available.');
+autoUpdater.on('update-available', (info) => {
+  console.log('[AutoUpdater] Update available:', info.version);
+  mainWindow?.webContents.send('update-available', info.version);
 });
 
 autoUpdater.on('update-downloaded', (info) => {
-  console.log('[AutoUpdater] Update downloaded:', info);
-  mainWindow?.webContents.send('update-downloaded', info.version);
+  console.log('[AutoUpdater] Update downloaded:', info.version);
+  // Send ready signal for the "Restart to Install" button
+  mainWindow?.webContents.send('update-ready', info.version);
 });
 
 autoUpdater.on('error', (err) => {
@@ -329,6 +331,25 @@ app.whenReady().then(async () => {
   globalShortcut.register('Alt+S', () => {
     // 1. Ask Main Window to get context from active view
     mainWindow?.webContents.send('gemini-get-context');
+  });
+
+  // Register Find in Page Shortcut (Ctrl+F)
+  globalShortcut.register('CommandOrControl+F', () => {
+    mainWindow?.webContents.send('toggle-find-bar');
+  });
+
+  // Register Zoom Shortcuts
+  globalShortcut.register('CommandOrControl+Plus', () => {
+    mainWindow?.webContents.send('zoom-in');
+  });
+  globalShortcut.register('CommandOrControl+=', () => {
+    mainWindow?.webContents.send('zoom-in');
+  });
+  globalShortcut.register('CommandOrControl+-', () => {
+    mainWindow?.webContents.send('zoom-out');
+  });
+  globalShortcut.register('CommandOrControl+0', () => {
+    mainWindow?.webContents.send('zoom-reset');
   });
 
   setupDownloadManager(session.defaultSession);
@@ -1089,3 +1110,5 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
+// Bottom of file cleaned up

@@ -24,9 +24,9 @@ function App() {
   const { tabs, activeTabId, setActiveTab, updateTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setUpdateReady } = useStore();
 
   useEffect(() => {
-    const ipc = (window as any).electron?.ipcRenderer;
+    const ipc = (window as any).rizoAPI?.ipcRenderer;
     if (ipc) {
-      ipc.on('update-downloaded', () => {
+      ipc.on('update-ready', () => {
         setUpdateReady(true);
       });
 
@@ -122,14 +122,14 @@ function App() {
       if (item && item.id) completeDownload(item);
     };
 
-    (window as any).electron?.ipcRenderer.on('download-started', onDownloadStarted);
-    (window as any).electron?.ipcRenderer.on('download-progress', onDownloadProgress);
-    (window as any).electron?.ipcRenderer.on('download-complete', onDownloadComplete);
+    (window as any).rizoAPI?.ipcRenderer.on('download-started', onDownloadStarted);
+    (window as any).rizoAPI?.ipcRenderer.on('download-progress', onDownloadProgress);
+    (window as any).rizoAPI?.ipcRenderer.on('download-complete', onDownloadComplete);
 
     return () => {
-      (window as any).electron?.ipcRenderer.off('download-started', onDownloadStarted);
-      (window as any).electron?.ipcRenderer.off('download-progress', onDownloadProgress);
-      (window as any).electron?.ipcRenderer.off('download-complete', onDownloadComplete);
+      (window as any).rizoAPI?.ipcRenderer.off('download-started', onDownloadStarted);
+      (window as any).rizoAPI?.ipcRenderer.off('download-progress', onDownloadProgress);
+      (window as any).rizoAPI?.ipcRenderer.off('download-complete', onDownloadComplete);
     };
   }, [addDownload, updateDownload, completeDownload]);
 

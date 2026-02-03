@@ -104,7 +104,7 @@ window.addEventListener('submit', (e) => {
     }
 });
 
-contextBridge.exposeInMainWorld('electron', {
+contextBridge.exposeInMainWorld('rizoAPI', {
     store: {
         get: (key: string) => ipcRenderer.invoke('get-store-value', key),
         set: (key: string, value: any) => ipcRenderer.invoke('set-store-value', key, value),
@@ -114,6 +114,11 @@ contextBridge.exposeInMainWorld('electron', {
         maximize: () => ipcRenderer.send('maximize-window'),
         close: () => ipcRenderer.send('close-window'),
     },
+    // Update Flow
+    onUpdateAvailable: (callback: (version: string) => void) => {
+        ipcRenderer.on('update-available', (_event, version) => callback(version));
+    },
+    quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
     ipcRenderer: {
         send: (channel: string, ...args: any[]) => ipcRenderer.send(channel, ...args),
         on: (channel: string, func: (...args: any[]) => void) => {

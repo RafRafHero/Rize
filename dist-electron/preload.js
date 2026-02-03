@@ -98,7 +98,7 @@ window.addEventListener('submit', (e) => {
         console.error('[Preload] Form capture failed:', e);
     }
 });
-electron_1.contextBridge.exposeInMainWorld('electron', {
+electron_1.contextBridge.exposeInMainWorld('rizoAPI', {
     store: {
         get: (key) => electron_1.ipcRenderer.invoke('get-store-value', key),
         set: (key, value) => electron_1.ipcRenderer.invoke('set-store-value', key, value),
@@ -108,6 +108,11 @@ electron_1.contextBridge.exposeInMainWorld('electron', {
         maximize: () => electron_1.ipcRenderer.send('maximize-window'),
         close: () => electron_1.ipcRenderer.send('close-window'),
     },
+    // Update Flow
+    onUpdateAvailable: (callback) => {
+        electron_1.ipcRenderer.on('update-available', (_event, version) => callback(version));
+    },
+    quitAndInstall: () => electron_1.ipcRenderer.invoke('quit-and-install'),
     ipcRenderer: {
         send: (channel, ...args) => electron_1.ipcRenderer.send(channel, ...args),
         on: (channel, func) => {

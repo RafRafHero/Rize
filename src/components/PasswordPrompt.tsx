@@ -22,7 +22,7 @@ export const PasswordPrompt: React.FC = () => {
     const handleSave = async () => {
         if (!capturedPassword) return;
         setIsSaving(true);
-        const success = await (window as any).electron?.ipcRenderer.invoke('save-password', capturedPassword);
+        const success = await (window as any).rizoAPI?.ipcRenderer.invoke('save-password', capturedPassword);
         if (success) {
             setIsSaved(true);
             setTimeout(() => {

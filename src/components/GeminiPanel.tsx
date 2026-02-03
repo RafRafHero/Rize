@@ -49,11 +49,11 @@ export const GeminiPanel: React.FC = () => {
     };
 
     const handleSummarize = () => {
-        (window as any).electron?.ipcRenderer.send('gemini-summarize-request');
+        (window as any).rizoAPI?.ipcRenderer.send('gemini-summarize-request');
     };
 
     useEffect(() => {
-        const ipc = (window as any).electron?.ipcRenderer;
+        const ipc = (window as any).rizoAPI?.ipcRenderer;
         if (!ipc) return;
 
         const onInjectContext = (_: any, data: { title: string, url: string, content: string }) => {

@@ -21,7 +21,7 @@ export const ProfileSelector: React.FC = () => {
     const [editName, setEditName] = useState('');
 
     const loadProfiles = async () => {
-        const list = await (window as any).electron?.ipcRenderer.invoke('get-profiles-list');
+        const list = await (window as any).rizoAPI?.ipcRenderer.invoke('get-profiles-list');
         setProfiles(list || []);
         setLoading(false);
     };
@@ -32,7 +32,7 @@ export const ProfileSelector: React.FC = () => {
 
     const handleCreate = async () => {
         if (!newName.trim()) return;
-        const newProfile = await (window as any).electron?.ipcRenderer.invoke('create-profile', { name: newName });
+        const newProfile = await (window as any).rizoAPI?.ipcRenderer.invoke('create-profile', { name: newName });
         if (newProfile) {
             setProfiles([...profiles, newProfile]);
             setNewName('');
@@ -43,13 +43,13 @@ export const ProfileSelector: React.FC = () => {
     };
 
     const handleSelect = (id: string) => {
-        (window as any).electron?.ipcRenderer.send('select-profile', { id, alwaysOpen });
+        (window as any).rizoAPI?.ipcRenderer.send('select-profile', { id, alwaysOpen });
     };
 
     const handleDelete = async (e: React.MouseEvent, id: string) => {
         e.stopPropagation();
         if (confirm('Are you sure you want to delete this profile? Data will be lost.')) {
-            const success = await (window as any).electron?.ipcRenderer.invoke('delete-profile', id);
+            const success = await (window as any).rizoAPI?.ipcRenderer.invoke('delete-profile', id);
             if (success) {
                 setProfiles(profiles.filter(p => p.id !== id));
             }
@@ -64,7 +64,7 @@ export const ProfileSelector: React.FC = () => {
 
     const handleSaveEdit = async () => {
         if (!editName.trim() || !editingId) return;
-        const success = await (window as any).electron?.ipcRenderer.invoke('rename-profile', { id: editingId, name: editName });
+        const success = await (window as any).rizoAPI?.ipcRenderer.invoke('rename-profile', { id: editingId, name: editName });
         if (success) {
             setProfiles(profiles.map(p => p.id === editingId ? { ...p, name: editName } : p));
             setEditingId(null);

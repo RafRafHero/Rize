@@ -19,7 +19,7 @@ export const HistoryPage: React.FC = () => {
 
     const loadHistory = async () => {
         setIsLoading(true);
-        const data = await (window as any).electron?.ipcRenderer.invoke('get-history');
+        const data = await (window as any).rizoAPI?.ipcRenderer.invoke('get-history');
         if (data) setHistory(data);
         setIsLoading(false);
     };
@@ -59,14 +59,14 @@ export const HistoryPage: React.FC = () => {
     }, [filteredHistory]);
 
     const handleDelete = async (timestamp: number) => {
-        const success = await (window as any).electron?.ipcRenderer.invoke('delete-history-entry', timestamp);
+        const success = await (window as any).rizoAPI?.ipcRenderer.invoke('delete-history-entry', timestamp);
         if (success) {
             setHistory(prev => prev.filter(h => h.timestamp !== timestamp));
         }
     };
 
     const handleClear = async (timeframe: string) => {
-        const success = await (window as any).electron?.ipcRenderer.invoke('clear-history', timeframe);
+        const success = await (window as any).rizoAPI?.ipcRenderer.invoke('clear-history', timeframe);
         if (success) {
             loadHistory();
         }

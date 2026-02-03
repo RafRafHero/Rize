@@ -63,7 +63,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                     .map(h => h.url); // We'll store URLs and titles separately or handle display logic
 
                 // 2. Fetch Google Suggestions
-                const googleResults = await (window as any).electron?.ipcRenderer.invoke('get-suggestions', inputUrl);
+                const googleResults = await (window as any).rizoAPI?.ipcRenderer.invoke('get-suggestions', inputUrl);
 
                 // 3. Merge and Deduplicate
                 const allResults = [...new Set([...historyMatches, ...(googleResults || [])])].slice(0, 10);
@@ -119,11 +119,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
             completeDownload(data);
         };
 
-        const ipc = (window as any).electron?.ipcRenderer;
+        // Update Ready Listener
+        const onUpdateReady = () => {
+            useStore.getState().setUpdateReady(true);
+        };
+
+        const ipc = (window as any).rizoAPI?.ipcRenderer;
         if (ipc) {
             ipc.on('download-started', onStarted);
             ipc.on('download-progress', onProgress);
             ipc.on('download-complete', onComplete);
+            ipc.on('update-available', onUpdateReady); // Red dot on available
+            ipc.on('update-ready', onUpdateReady);     // Also on downloaded
         }
 
         return () => {
@@ -131,6 +138,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                 ipc.off('download-started', onStarted);
                 ipc.off('download-progress', onProgress);
                 ipc.off('download-complete', onComplete);
+                ipc.off('update-available', onUpdateReady);
+                ipc.off('update-ready', onUpdateReady);
             }
         };
     }, []);

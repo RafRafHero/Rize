@@ -40,16 +40,16 @@ export const GhostSearch: React.FC = () => {
     // Fetch profiles on mount or when opened
     useEffect(() => {
         if (isGhostSearchOpen) {
-            (window as any).electron?.ipcRenderer.invoke('get-profiles-list').then(setProfiles);
+            (window as any).rizoAPI?.ipcRenderer.invoke('get-profiles-list').then(setProfiles);
         }
     }, [isGhostSearchOpen]);
 
     // Handle IPC toggle
     useEffect(() => {
         const handleIpcToggle = () => toggleGhostSearch();
-        (window as any).electron?.ipcRenderer.on('toggle-ghost-search', handleIpcToggle);
+        (window as any).rizoAPI?.ipcRenderer.on('toggle-ghost-search', handleIpcToggle);
         return () => {
-            (window as any).electron?.ipcRenderer.off('toggle-ghost-search', handleIpcToggle);
+            (window as any).rizoAPI?.ipcRenderer.off('toggle-ghost-search', handleIpcToggle);
         };
     }, [toggleGhostSearch]);
 
@@ -166,7 +166,7 @@ export const GhostSearch: React.FC = () => {
                             {/* Commands Group */}
                             <Command.Group heading="Actions" className="px-2 py-1.5 text-[11px] font-medium tracking-wider uppercase opacity-40">
                                 <Command.Item
-                                    onSelect={() => handleSelectAction(() => (window as any).electron?.ipcRenderer.send('open-incognito-window'))}
+                                    onSelect={() => handleSelectAction(() => (window as any).rizoAPI?.ipcRenderer.send('open-incognito-window'))}
                                     className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer aria-selected:bg-white/10 aria-selected:text-white"
                                 >
                                     <Shield className="w-4 h-4 text-purple-400" />
@@ -188,7 +188,7 @@ export const GhostSearch: React.FC = () => {
                                 </Command.Item>
                                 <Command.Item
                                     onSelect={() => handleSelectAction(() => {
-                                        (window as any).electron?.ipcRenderer.invoke('clear-history', 'all');
+                                        (window as any).rizoAPI?.ipcRenderer.invoke('clear-history', 'all');
                                         // Update state locally too
                                         useStore.setState({ siteHistory: [] });
                                     })}
@@ -199,7 +199,7 @@ export const GhostSearch: React.FC = () => {
                                 </Command.Item>
                                 <Command.Item
                                     onSelect={() => handleSelectAction(() => {
-                                        (window as any).electron?.ipcRenderer.send('clear-cache');
+                                        (window as any).rizoAPI?.ipcRenderer.send('clear-cache');
                                     })}
                                     className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer aria-selected:bg-white/10 aria-selected:text-white"
                                 >
@@ -214,7 +214,7 @@ export const GhostSearch: React.FC = () => {
                                     <Command.Item
                                         key={p.id}
                                         onSelect={() => handleSelectAction(() => {
-                                            (window as any).electron?.ipcRenderer.send('select-profile', { id: p.id, alwaysOpen: false });
+                                            (window as any).rizoAPI?.ipcRenderer.send('select-profile', { id: p.id, alwaysOpen: false });
                                         })}
                                         className="flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer aria-selected:bg-white/10 aria-selected:text-white"
                                     >

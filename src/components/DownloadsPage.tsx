@@ -92,7 +92,7 @@ export const DownloadsPage: React.FC = () => {
 
                                                 {item.state === 'completed' && (
                                                     <button
-                                                        onClick={() => (window as any).electron?.ipcRenderer.send('show-in-folder', item.path)}
+                                                        onClick={() => (window as any).rizoAPI?.ipcRenderer.send('show-in-folder', item.path)}
                                                         className="flex items-center gap-1.5 px-3 py-1.5 bg-secondary hover:bg-secondary/80 rounded-md text-foreground transition-colors font-medium opacity-0 group-hover:opacity-100"
                                                     >
                                                         <Folder size={14} />

@@ -7,6 +7,9 @@ import { Settings } from './Settings';
 import { safeWebViewAction } from '../lib/webview-utils';
 import { ErrorBoundary } from './ErrorBoundary';
 import { PermissionPopup } from './PermissionPopup';
+import { FindBar } from './FindBar';
+import { PasswordsPage } from './PasswordsPage';
+import { ZoomBar } from './ZoomBar';
 
 interface BrowserViewProps {
     tabId: string;
@@ -17,7 +20,12 @@ interface BrowserViewProps {
 
 export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVisible = true, onMount }) => {
     const webviewRef = useRef<any>(null);
+    const zoomTimerRef = useRef<any>(null);
     const [isReady, setIsReady] = React.useState(false);
+    const [isFindBarOpen, setIsFindBarOpen] = React.useState(false);
+    const [findMatches, setFindMatches] = React.useState({ active: 0, total: 0 });
+    const [zoomLevel, setZoomLevel] = React.useState(1);
+    const [isZoomBarOpen, setIsZoomBarOpen] = React.useState(false);
     const [permissionReq, setPermissionReq] = React.useState<{
         permission: string;
         request: any;
@@ -66,7 +74,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
 
             const handleContextMenu = (e: any) => {
                 // e.params contains the context menu info
-                (window as any).electron?.ipcRenderer.send('show-context-menu', e.params);
+                (window as any).rizoAPI?.ipcRenderer.send('show-context-menu', e.params);
             };
 
             const handleDomReady = () => setIsReady(true);
@@ -112,6 +120,16 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
             wv.addEventListener('context-menu', handleContextMenu);
             wv.addEventListener('mouseup', handleMouseUp);
 
+            const handleFoundInPage = (e: any) => {
+                if (e.result) {
+                    setFindMatches({
+                        active: e.result.activeMatchOrdinal,
+                        total: e.result.matches
+                    });
+                }
+            };
+            wv.addEventListener('found-in-page', handleFoundInPage);
+
             const handlePermissionRequest = (e: any) => {
                 const origin = new URL(wv.getURL()).hostname;
                 const permissions = useStore.getState().sitePermissions || {};
@@ -146,6 +164,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                 wv.removeEventListener('context-menu', handleContextMenu);
                 wv.removeEventListener('mouseup', handleMouseUp);
                 wv.removeEventListener('dom-ready', handleDomReady);
+                wv.removeEventListener('found-in-page', handleFoundInPage);
                 wv.removeEventListener('did-start-navigation', handleDidStartNavigation);
                 wv.removeEventListener('did-navigate', injectAdBlockCSS);
                 wv.removeEventListener('did-fail-load', handleDidFailLoad);
@@ -177,7 +196,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
             addTab(url);
         };
 
-        const ipc = (window as any).electron?.ipcRenderer;
+        const ipc = (window as any).rizoAPI?.ipcRenderer;
         if (ipc) {
             ipc.on('execute-browser-backward', onGoBack);
             ipc.on('execute-browser-forward', onGoForward);
@@ -225,6 +244,44 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                     console.error('Gemini extraction failed', e);
                 }
             });
+
+            // Find Bar Toggle
+            ipc.on('toggle-find-bar', () => {
+                if (!isActive) return;
+                setIsFindBarOpen(prev => !prev);
+            });
+
+            // Zoom Controls
+            ipc.on('zoom-in', () => {
+                if (!isActive) return;
+                setIsZoomBarOpen(true);
+                setZoomLevel(prev => {
+                    const newLevel = Math.min(prev + 0.1, 3);
+                    safeWebViewAction(webviewRef.current, (wv) => wv.setZoomFactor(newLevel));
+                    return newLevel;
+                });
+                if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+                zoomTimerRef.current = setTimeout(() => setIsZoomBarOpen(false), 5000);
+            });
+            ipc.on('zoom-out', () => {
+                if (!isActive) return;
+                setIsZoomBarOpen(true);
+                setZoomLevel(prev => {
+                    const newLevel = Math.max(prev - 0.1, 0.3);
+                    safeWebViewAction(webviewRef.current, (wv) => wv.setZoomFactor(newLevel));
+                    return newLevel;
+                });
+                if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+                zoomTimerRef.current = setTimeout(() => setIsZoomBarOpen(false), 5000);
+            });
+            ipc.on('zoom-reset', () => {
+                if (!isActive) return;
+                setIsZoomBarOpen(true);
+                setZoomLevel(1);
+                safeWebViewAction(webviewRef.current, (wv) => wv.setZoomFactor(1));
+                if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
+                zoomTimerRef.current = setTimeout(() => setIsZoomBarOpen(false), 5000);
+            });
         }
 
         return () => {
@@ -234,7 +291,11 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                 ipc.off('reload', onReload);
                 ipc.off('go-back', onGoBack);
                 ipc.off('go-forward', onGoForward);
-                ipc.off('create-tab', onCreateTab); // Note: onCreateTab needs to be defined outside or refs used if we want to remove strictly
+                ipc.off('create-tab', onCreateTab);
+                ipc.off('toggle-find-bar', () => { });
+                ipc.off('zoom-in', () => { });
+                ipc.off('zoom-out', () => { });
+                ipc.off('zoom-reset', () => { });
             }
         };
     }, [isActive, addTab]);
@@ -274,12 +335,13 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
     const showNewTab = !currentUrl || currentUrl === '';
     const isImageView = currentUrl.startsWith('rizo://view-image');
     const isSettingsPage = currentUrl === 'rizo://settings';
+    const isPasswordsPage = currentUrl === 'rizo://passwords';
     const imageSrc = isImageView ? new URL(currentUrl).searchParams.get('src') || '' : '';
 
     // Fetch preload path
     const [preloadPath, setPreloadPath] = React.useState<string>('');
     useEffect(() => {
-        (window as any).electron?.ipcRenderer.invoke('get-preload-path').then(setPreloadPath);
+        (window as any).rizoAPI?.ipcRenderer.invoke('get-preload-path').then(setPreloadPath);
     }, []);
 
     // Navigation Feedback State
@@ -293,9 +355,9 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
             // setTimeout(() => setNavFeedback(null), 600); 
             triggerNavFeedback(type);
         };
-        (window as any).electron?.ipcRenderer.on('navigation-feedback', onFeedback);
+        (window as any).rizoAPI?.ipcRenderer.on('navigation-feedback', onFeedback);
         return () => {
-            (window as any).electron?.ipcRenderer.off('navigation-feedback', onFeedback);
+            (window as any).rizoAPI?.ipcRenderer.off('navigation-feedback', onFeedback);
         };
     }, []);
 
@@ -330,7 +392,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                 onMouseUp={handleContainerMouseUp}
             >
                 {/* Webview or Internal Pages */}
-                {!isImageView && !isSettingsPage && (
+                {!isImageView && !isSettingsPage && !isPasswordsPage && (
                     <webview
                         ref={webviewRef as any}
                         key={useStore.getState().activeProfileId || 'default'}
@@ -370,6 +432,13 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                     </div>
                 )}
 
+                {/* Passwords Page */}
+                {isPasswordsPage && (
+                    <div className="absolute inset-0 z-20 overflow-auto">
+                        <PasswordsPage />
+                    </div>
+                )}
+
                 <PermissionPopup
                     request={permissionReq}
                     onAllow={() => {
@@ -395,6 +464,51 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                             permissionReq.request.deny();
                             setPermissionReq(null);
                         }
+                    }}
+                />
+
+                {/* Find Bar */}
+                <FindBar
+                    isOpen={isFindBarOpen}
+                    matches={findMatches}
+                    onClose={() => {
+                        setIsFindBarOpen(false);
+                        safeWebViewAction(webviewRef.current, (wv) => {
+                            wv.stopFindInPage('clearSelection');
+                        });
+                    }}
+                    onFind={(text, forward) => {
+                        safeWebViewAction(webviewRef.current, (wv) => {
+                            wv.findInPage(text, { forward, findNext: true });
+                        });
+                    }}
+                    onStopFind={() => {
+                        // Keep highlights, just clear bar focus? Or clear all? 
+                        // User usually expects highlights to clear on close.
+                    }}
+                />
+
+                {/* Zoom Bar */}
+                <ZoomBar
+                    isOpen={isZoomBarOpen}
+                    zoomLevel={zoomLevel}
+                    onZoomIn={() => {
+                        setZoomLevel(prev => {
+                            const newLevel = Math.min(prev + 0.1, 3);
+                            safeWebViewAction(webviewRef.current, (wv) => wv.setZoomFactor(newLevel));
+                            return newLevel;
+                        });
+                    }}
+                    onZoomOut={() => {
+                        setZoomLevel(prev => {
+                            const newLevel = Math.max(prev - 0.1, 0.3);
+                            safeWebViewAction(webviewRef.current, (wv) => wv.setZoomFactor(newLevel));
+                            return newLevel;
+                        });
+                    }}
+                    onReset={() => {
+                        setZoomLevel(1);
+                        safeWebViewAction(webviewRef.current, (wv) => wv.setZoomFactor(1));
                     }}
                 />
             </div>

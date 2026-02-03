@@ -157,21 +157,21 @@ export const DownloadManager: React.FC = () => {
                                         <div className="flex items-center gap-1">
                                             {!item.isPaused ? (
                                                 <button
-                                                    onClick={() => (window as any).electron?.ipcRenderer.send('download-control', { id: item.id, action: 'pause' })}
+                                                    onClick={() => (window as any).rizoAPI?.ipcRenderer.send('download-control', { id: item.id, action: 'pause' })}
                                                     className="p-1 hover:bg-background rounded-full transition-colors"
                                                 >
                                                     <Pause size={14} />
                                                 </button>
                                             ) : (
                                                 <button
-                                                    onClick={() => (window as any).electron?.ipcRenderer.send('download-control', { id: item.id, action: 'resume' })}
+                                                    onClick={() => (window as any).rizoAPI?.ipcRenderer.send('download-control', { id: item.id, action: 'resume' })}
                                                     className="p-1 hover:bg-background rounded-full transition-colors"
                                                 >
                                                     <Play size={14} />
                                                 </button>
                                             )}
                                             <button
-                                                onClick={() => (window as any).electron?.ipcRenderer.send('download-control', { id: item.id, action: 'cancel' })}
+                                                onClick={() => (window as any).rizoAPI?.ipcRenderer.send('download-control', { id: item.id, action: 'cancel' })}
                                                 className="p-1 hover:bg-destructive/10 hover:text-destructive rounded-full transition-colors"
                                             >
                                                 <X size={14} />
@@ -210,7 +210,7 @@ export const DownloadManager: React.FC = () => {
                                     </div>
                                     {item.state === 'completed' && (
                                         <button
-                                            onClick={() => (window as any).electron?.ipcRenderer.send('show-in-folder', item.path)}
+                                            onClick={() => (window as any).rizoAPI?.ipcRenderer.send('show-in-folder', item.path)}
                                             className="p-2 hover:bg-secondary rounded-lg opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
                                             title="Show in Folder"
                                         >

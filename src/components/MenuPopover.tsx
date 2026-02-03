@@ -31,7 +31,7 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
             icon: RefreshCw,
             className: 'text-red-400 font-bold',
             onClick: () => {
-                (window as any).electron?.ipcRenderer.invoke('quit-and-install');
+                (window as any).rizoAPI?.ipcRenderer.invoke('quit-and-install');
                 onClose();
             }
         }] : []),
@@ -47,7 +47,7 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
             label: 'Incognito Mode',
             icon: Glasses,
             onClick: () => {
-                (window as any).electron?.ipcRenderer.send('open-incognito-window');
+                (window as any).rizoAPI?.ipcRenderer.send('open-incognito-window');
                 onClose();
             }
         },
@@ -55,7 +55,7 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
             label: 'Dev Tools',
             icon: Code,
             onClick: () => {
-                (window as any).electron?.ipcRenderer.send('open-dev-tools');
+                (window as any).rizoAPI?.ipcRenderer.send('open-dev-tools');
                 onClose();
             }
         },
@@ -64,14 +64,6 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
             icon: Book,
             onClick: () => {
                 useStore.getState().updateSettings({ showBookmarksBar: !settings.showBookmarksBar });
-                onClose();
-            }
-        },
-        {
-            label: 'Bookmark Manager',
-            icon: Book,
-            onClick: () => {
-                toggleSettings('bookmarks');
                 onClose();
             }
         },
@@ -95,7 +87,7 @@ export const MenuPopover: React.FC<MenuPopoverProps> = ({ isOpen, onClose }) => 
             label: 'Set as Default',
             icon: Monitor,
             onClick: () => {
-                (window as any).electron?.ipcRenderer.send('open-default-browser-settings');
+                (window as any).rizoAPI?.ipcRenderer.send('open-default-browser-settings');
                 onClose();
             }
         },

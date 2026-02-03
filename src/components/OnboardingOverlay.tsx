@@ -46,7 +46,7 @@ export const OnboardingOverlay = () => {
     const handleImport = async (browser: 'chrome' | 'edge') => {
         setImportStatus('importing');
         try {
-            const result = await (window as any).electron?.ipcRenderer.invoke('import-browser-data', browser);
+            const result = await (window as any).rizoAPI?.ipcRenderer.invoke('import-browser-data', browser);
             if (result && result.bookmarks) {
                 result.bookmarks.forEach((b: any) => addBookmark(b));
                 setImportedCount(result.bookmarks.length);
@@ -70,7 +70,7 @@ export const OnboardingOverlay = () => {
             // (User requested fade to profile selection, but usually we are ALREADY in a profile or default.
             //  Safe bet: Just end tutorial. App.tsx will show normal UI or Profile Selector based on URL usage.)
             // If the user meant "Show Profile Selector NOW", we can force it:
-            // (window as any).electron?.ipcRenderer.send('switch-to-profile-selector'); 
+            // (window as any).rizoAPI?.ipcRenderer.send('switch-to-profile-selector'); 
             // But let's stick to just completing for now as the request was "The persist check logic".
         }, 800);
     };

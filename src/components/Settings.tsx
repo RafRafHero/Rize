@@ -1,14 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/useStore';
-import { Monitor, Moon, Sun, Search, Book, Trash2, Check, Sparkles } from 'lucide-react';
+import { Monitor, Moon, Sun, Search, Book, Trash2, Check, Sparkles, Key } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { PasswordsPage } from './PasswordsPage';
 
 export const Settings: React.FC = () => {
     const { settings, updateSettings, bookmarks, removeBookmark, settingsSection } = useStore();
+    const [appVersion, setAppVersion] = useState<string>('');
+
+    useEffect(() => {
+        (window as any).rizoAPI?.ipcRenderer.invoke('get-app-version').then((v: string) => setAppVersion(v));
+    }, []);
 
     const activeSection = settingsSection;
-    const setActiveSection = (section: 'general' | 'bookmarks' | 'appearance') => {
+    const setActiveSection = (section: 'general' | 'bookmarks' | 'appearance' | 'passwords') => {
         useStore.setState({ settingsSection: section });
     };
 
@@ -33,12 +39,18 @@ export const Settings: React.FC = () => {
                     <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
                     <p className="text-sm text-muted-foreground mt-1">Configure your browsing experience</p>
                 </div>
+                {appVersion && (
+                    <span className="text-xs font-mono text-muted-foreground bg-secondary/50 px-3 py-1 rounded-full border border-border/50">
+                        v{appVersion}
+                    </span>
+                )}
             </div>
 
             <div className="flex px-8 border-b border-border/50 bg-secondary/5">
                 <TabButton id="general" label="General" icon={Monitor} />
                 <TabButton id="appearance" label="Appearance" icon={Sparkles} />
                 <TabButton id="bookmarks" label="Bookmarks" icon={Book} />
+                <TabButton id="passwords" label="Passwords" icon={Key} />
             </div>
 
             {/* Content Area */}
@@ -296,6 +308,10 @@ export const Settings: React.FC = () => {
                                     </div>
                                 </div>
                             </section>
+                        </div>
+                    ) : activeSection === 'passwords' ? (
+                        <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <PasswordsPage />
                         </div>
                     ) : (
                         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">

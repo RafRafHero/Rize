@@ -21,7 +21,7 @@ export const AdBlockerPanel: React.FC = () => {
     useEffect(() => {
         const interval = setInterval(async () => {
             try {
-                const result = await (window as any).electron?.ipcRenderer.invoke('get-extension-storage', 'blockedCount');
+                const result = await (window as any).rizoAPI?.ipcRenderer.invoke('get-extension-storage', 'blockedCount');
                 if (result !== undefined && result !== null) {
                     updateBlockedCount(result);
                 }

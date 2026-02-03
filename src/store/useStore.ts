@@ -22,6 +22,14 @@ export interface SidebarSite {
     icon?: string;
 }
 
+export interface TabGroup {
+    id: string;
+    title: string;
+    color: string;
+    isCollapsed: boolean;
+    tabIds: string[];
+}
+
 export interface Settings {
     theme: 'light' | 'dark' | 'system';
     searchEngine: 'google' | 'duckduckgo' | 'brave';
@@ -76,6 +84,7 @@ export interface Tab {
     canGoForward: boolean;
     favicon?: string;
     thumbnailUrl?: string;
+    groupId?: string;
 }
 
 export interface DownloadItem {
@@ -94,11 +103,12 @@ export interface DownloadItem {
 
 interface BrowserState {
     tabs: Tab[];
+    tabGroups: TabGroup[];
     activeTabId: string;
     bookmarks: Bookmark[];
     favorites: Bookmark[];
     settings: Settings;
-    settingsSection: 'general' | 'bookmarks' | 'appearance';
+    settingsSection: 'general' | 'bookmarks' | 'appearance' | 'passwords';
     navFeedback: 'back' | 'forward' | null;
 
     // UI State
@@ -137,7 +147,7 @@ interface BrowserState {
 
     // Settings Actions
     updateSettings: (settings: Partial<Settings>) => void;
-    toggleSettings: (section?: 'general' | 'bookmarks' | 'appearance') => void;
+    toggleSettings: (section?: 'general' | 'bookmarks' | 'appearance' | 'passwords') => void;
     triggerNavFeedback: (type: 'back' | 'forward') => void;
 
     // Gemini Actions
@@ -171,10 +181,18 @@ interface BrowserState {
     // Onboarding
     firstRunCompleted: boolean | null; // null = loading/unknown
     setFirstRunCompleted: (completed: boolean) => void;
+
+    // Group Actions
+    createTabGroup: (title?: string) => void;
+    updateTabGroup: (id: string, updates: Partial<TabGroup>) => void;
+    deleteTabGroup: (id: string) => void;
+    moveTabToGroup: (tabId: string, groupId: string | undefined) => void;
+    reorderTabs: (activeId: string, overId: string) => void;
 }
 
 export const useStore = create<BrowserState>((set, get) => ({
     tabs: [{ id: '1', url: '', title: 'New Tab', isLoading: false, canGoBack: false, canGoForward: false }],
+    tabGroups: [],
     activeTabId: '1',
     bookmarks: [],
     favorites: [],
@@ -305,13 +323,13 @@ export const useStore = create<BrowserState>((set, get) => ({
             newBookmarks = [...state.bookmarks, bookmark];
         }
 
-        (window as any).electron?.store.set('bookmarks', newBookmarks);
+        (window as any).rizoAPI?.store.set('bookmarks', newBookmarks);
         return { bookmarks: newBookmarks };
     }),
 
     removeBookmark: (id) => set((state) => {
         const newBookmarks = state.bookmarks.filter(b => b.id !== id);
-        (window as any).electron?.store.set('bookmarks', newBookmarks);
+        (window as any).rizoAPI?.store.set('bookmarks', newBookmarks);
         return { bookmarks: newBookmarks };
     }),
 
@@ -324,13 +342,13 @@ export const useStore = create<BrowserState>((set, get) => ({
         } else {
             newFavorites = [...state.favorites, favorite];
         }
-        (window as any).electron?.store.set('favorites', newFavorites);
+        (window as any).rizoAPI?.store.set('favorites', newFavorites);
         return { favorites: newFavorites };
     }),
 
     removeFavorite: (id) => set((state) => {
         const newFavorites = state.favorites.filter(f => f.id !== id);
-        (window as any).electron?.store.set('favorites', newFavorites);
+        (window as any).rizoAPI?.store.set('favorites', newFavorites);
         return { favorites: newFavorites };
     }),
 
@@ -341,8 +359,8 @@ export const useStore = create<BrowserState>((set, get) => ({
     toggleAdBlockerEnabled: () => set((state) => {
         const enabled = !state.settings.adBlockEnabled;
         const updated = { ...state.settings, adBlockEnabled: enabled };
-        (window as any).electron?.store.set('settings', updated);
-        (window as any).electron?.ipcRenderer.send('update-adblocker-settings');
+        (window as any).rizoAPI?.store.set('settings', updated);
+        (window as any).rizoAPI?.ipcRenderer.send('update-adblocker-settings');
         return { settings: updated };
     }),
 
@@ -350,16 +368,16 @@ export const useStore = create<BrowserState>((set, get) => ({
         if (state.settings.adBlockWhitelist.includes(domain)) return {};
         const whitelist = [...state.settings.adBlockWhitelist, domain];
         const updated = { ...state.settings, adBlockWhitelist: whitelist };
-        (window as any).electron?.store.set('settings', updated);
-        (window as any).electron?.ipcRenderer.send('update-adblocker-settings');
+        (window as any).rizoAPI?.store.set('settings', updated);
+        (window as any).rizoAPI?.ipcRenderer.send('update-adblocker-settings');
         return { settings: updated };
     }),
 
     removeFromWhitelist: (domain) => set((state) => {
         const whitelist = state.settings.adBlockWhitelist.filter(d => d !== domain);
         const updated = { ...state.settings, adBlockWhitelist: whitelist };
-        (window as any).electron?.store.set('settings', updated);
-        (window as any).electron?.ipcRenderer.send('update-adblocker-settings');
+        (window as any).rizoAPI?.store.set('settings', updated);
+        (window as any).rizoAPI?.ipcRenderer.send('update-adblocker-settings');
         return { settings: updated };
     }),
 
@@ -371,7 +389,7 @@ export const useStore = create<BrowserState>((set, get) => ({
 
     updateSettings: (newSettings) => set((state) => {
         const updated = { ...state.settings, ...newSettings };
-        (window as any).electron?.store.set('settings', updated);
+        (window as any).rizoAPI?.store.set('settings', updated);
 
         if (newSettings.homePageConfig?.mode === 'night' || newSettings.homePageConfig?.mode === 'sunset') {
             updated.theme = 'dark';
@@ -480,9 +498,9 @@ export const useStore = create<BrowserState>((set, get) => ({
         }
 
         // Call Main Process IPC to persist to JSON file
-        (window as any).electron?.ipcRenderer.invoke('add-history-entry', { url, title, favicon });
+        (window as any).rizoAPI?.ipcRenderer.invoke('add-history-entry', { url, title, favicon });
 
-        (window as any).electron?.store.set('siteHistory', newHistory);
+        (window as any).rizoAPI?.store.set('siteHistory', newHistory);
         return { siteHistory: newHistory };
     }),
 
@@ -495,20 +513,93 @@ export const useStore = create<BrowserState>((set, get) => ({
                 [permission]: allowed
             }
         };
-        (window as any).electron?.store.set('sitePermissions', newPermissions);
+        (window as any).rizoAPI?.store.set('sitePermissions', newPermissions);
         return { sitePermissions: newPermissions };
     }),
 
     firstRunCompleted: null, // Default to null (loading)
     setFirstRunCompleted: (completed) => set(() => {
-        (window as any).electron?.store.set('firstRunCompleted', completed);
+        (window as any).rizoAPI?.store.set('firstRunCompleted', completed);
         return { firstRunCompleted: completed };
+    }),
+
+    createTabGroup: (title) => set((state) => {
+        const newGroup: TabGroup = {
+            id: crypto.randomUUID(),
+            title: title || 'New Group',
+            color: 'blue',
+            isCollapsed: false,
+            tabIds: []
+        };
+        const newGroups = [...state.tabGroups, newGroup];
+        (window as any).rizoAPI?.store.set('tabGroups', newGroups);
+        return { tabGroups: newGroups };
+    }),
+
+    updateTabGroup: (id, updates) => set((state) => {
+        const newGroups = state.tabGroups.map(g => g.id === id ? { ...g, ...updates } : g);
+        (window as any).rizoAPI?.store.set('tabGroups', newGroups);
+        return { tabGroups: newGroups };
+    }),
+
+    deleteTabGroup: (id) => set((state) => {
+        // Ungroup tabs: Set their groupId to undefined
+        const newTabs = state.tabs.map(t => t.groupId === id ? { ...t, groupId: undefined } : t);
+        const newGroups = state.tabGroups.filter(g => g.id !== id);
+
+        (window as any).rizoAPI?.store.set('tabGroups', newGroups);
+        return { tabGroups: newGroups, tabs: newTabs };
+    }),
+
+    moveTabToGroup: (tabId, groupId) => set((state) => {
+        const newTabs = state.tabs.map(t => t.id === tabId ? { ...t, groupId } : t);
+
+        // Also update group tabIds lists
+        const newGroups = state.tabGroups.map(g => {
+            if (g.id === groupId) {
+                // Add to target group if not present
+                if (!g.tabIds.includes(tabId)) {
+                    return { ...g, tabIds: [...g.tabIds, tabId] };
+                }
+            } else {
+                // Remove from other groups
+                if (g.tabIds.includes(tabId)) {
+                    return { ...g, tabIds: g.tabIds.filter(id => id !== tabId) };
+                }
+            }
+            return g;
+        });
+
+        // If groupId is undefined (ungrouping), ensure it's removed from all groups
+        if (!groupId) {
+            newGroups.forEach(g => {
+                if (g.tabIds.includes(tabId)) {
+                    g.tabIds = g.tabIds.filter(id => id !== tabId);
+                }
+            });
+        }
+
+        (window as any).rizoAPI?.store.set('tabGroups', newGroups);
+        return { tabs: newTabs, tabGroups: newGroups };
+    }),
+
+    reorderTabs: (activeId, overId) => set((state) => {
+        const oldIndex = state.tabs.findIndex((t) => t.id === activeId);
+        const newIndex = state.tabs.findIndex((t) => t.id === overId);
+
+        if (oldIndex !== -1 && newIndex !== -1) {
+            const newTabs = [...state.tabs];
+            const [movedTab] = newTabs.splice(oldIndex, 1);
+            newTabs.splice(newIndex, 0, movedTab);
+            return { tabs: newTabs };
+        }
+        return {};
     }),
 }));
 
 // Initialize store
 export const initStore = async () => {
-    const electron = (window as any).electron;
+    const electron = (window as any).rizoAPI;
     if (electron) {
         const storedBookmarks = await electron.store.get('bookmarks');
         const storedSettings = await electron.store.get('settings');

@@ -202,13 +202,13 @@ const createWindow = (isIncognito = false) => {
         },
     });
     // Global Navigation & Window Protections (Apply to webviews too)
-    mainWindow.webContents.setWindowOpenHandler(({ url, disposition, windowFeatures }) => {
+    mainWindow.webContents.setWindowOpenHandler(({ url, disposition, features }) => {
         // Allow Google Drive downloads and docs to open (they often trigger will-download)
         if (url.includes('drive.google.com/download') || url.includes('doc-')) {
             return { action: 'allow' };
         }
         // Handle Popups (forced by features or disposition)
-        if (disposition === 'new-window' || (windowFeatures && windowFeatures !== '')) {
+        if (disposition === 'new-window' || (features && features !== '')) {
             console.log(`[Main] Allowing popup window for URL: ${url}`);
             return {
                 action: 'allow',
@@ -606,11 +606,11 @@ electron_1.app.on('web-contents-created', (event, contents) => {
         }
     });
     // Window Open Handler: Handle popups and new tabs for all web contents
-    contents.setWindowOpenHandler(({ url, disposition, windowFeatures }) => {
+    contents.setWindowOpenHandler(({ url, disposition, features }) => {
         if (url.includes('drive.google.com/download') || url.includes('doc-')) {
             return { action: 'allow' };
         }
-        if (disposition === 'new-window' || (windowFeatures && windowFeatures !== '')) {
+        if (disposition === 'new-window' || (features && features !== '')) {
             console.log(`[Main] Allowing popup for web-contents: ${url}`);
             return {
                 action: 'allow',

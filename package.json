@@ -7,8 +7,7 @@
     "dev": "concurrently \"tsc -p electron/tsconfig.json -w\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "build": "tsc -p electron/tsconfig.json && vite build && electron-builder",
     "build:win": "tsc -p electron/tsconfig.json && vite build && electron-builder --windows nsis",
-    "build:mac": "tsc -p electron/tsconfig.json && vite build && electron-builder --mac dmg",
-    "build:all": "tsc -p electron/tsconfig.json && vite build && electron-builder --win --mac",
+    "build:all": "tsc -p electron/tsconfig.json && vite build && electron-builder --win",
     "publish-always": "electron-builder --win --publish always",
     "release": "tsc -p electron/tsconfig.json && vite build && electron-builder --win --publish always",
     "preview": "vite preview"
@@ -103,26 +102,6 @@
             "https",
             "rizo"
           ]
-        }
-      ]
-    },
-    "mac": {
-      "target": "dmg",
-      "icon": "build/icon.png",
-      "category": "public.app-category.productivity"
-    },
-    "dmg": {
-      "contents": [
-        {
-          "x": 410,
-          "y": 150,
-          "type": "link",
-          "path": "/Applications"
-        },
-        {
-          "x": 130,
-          "y": 150,
-          "type": "file"
         }
       ]
     },

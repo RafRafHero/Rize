@@ -1,3 +1,8 @@
+# Task: Fix "GitHub Personal Access Token is not set" Error
+# The release job is failing because GH_TOKEN is empty.
+
+# Please update .github/workflows/release.yml with this EXACT configuration:
+
 name: Build and Release
 on:
   push:

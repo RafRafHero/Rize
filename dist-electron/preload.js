@@ -98,11 +98,54 @@ window.addEventListener('submit', (e) => {
         console.error('[Preload] Form capture failed:', e);
     }
 });
+// Text Selection Listener for Whisper Bar
+// Text Selection Listener for Whisper Bar
+document.addEventListener('mouseup', () => {
+    const selection = window.getSelection();
+    if (!selection)
+        return;
+    const text = selection.toString().trim();
+    if (text.length > 1) {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        console.log("[PRELOAD] Selection detected:", text);
+        console.log("[PRELOAD] Rect:", rect);
+        const data = {
+            text,
+            rect: {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                top: rect.top,
+                left: rect.left
+            }
+        };
+        // Send to both channels for maximum compatibility
+        electron_1.ipcRenderer.sendToHost('selection-data', data);
+        electron_1.ipcRenderer.sendToHost('SHOW_WHISPER_BAR', data);
+        console.log("[PRELOAD] IPC Pings sent to host");
+    }
+    else {
+        // Optional: clear selection logic if needed
+        // ipcRenderer.sendToHost('selection-cleared');
+    }
+});
+// Also clear on mostly click if not selecting
+document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+        electron_1.ipcRenderer.sendToHost('text-selection-cleared');
+    }
+});
 electron_1.contextBridge.exposeInMainWorld('rizoAPI', {
     store: {
         get: (key) => electron_1.ipcRenderer.invoke('get-store-value', key),
         set: (key, value) => electron_1.ipcRenderer.invoke('set-store-value', key, value),
     },
+    // Profiles
+    getProfilesList: () => electron_1.ipcRenderer.invoke('get-profiles-list'),
+    createProfile: (data) => electron_1.ipcRenderer.invoke('create-profile', data),
     window: {
         minimize: () => electron_1.ipcRenderer.send('minimize-window'),
         maximize: () => electron_1.ipcRenderer.send('maximize-window'),
@@ -113,6 +156,9 @@ electron_1.contextBridge.exposeInMainWorld('rizoAPI', {
         electron_1.ipcRenderer.on('update-available', (_event, version) => callback(version));
     },
     quitAndInstall: () => electron_1.ipcRenderer.invoke('quit-and-install'),
+    // Default Browser
+    isDefaultBrowser: () => electron_1.ipcRenderer.invoke('is-default-browser'),
+    setAsDefault: () => electron_1.ipcRenderer.invoke('set-as-default'),
     ipcRenderer: {
         send: (channel, ...args) => electron_1.ipcRenderer.send(channel, ...args),
         on: (channel, func) => {
@@ -130,6 +176,9 @@ electron_1.contextBridge.exposeInMainWorld('rizoAPI', {
             electron_1.ipcRenderer.removeAllListeners(channel); // Brute force removal for this simplified bridge
         },
         invoke: (channel, ...args) => electron_1.ipcRenderer.invoke(channel, ...args),
-    }
+    },
+    // Shortcuts Trigger Bridge
+    triggerCommandPalette: () => electron_1.ipcRenderer.send('toggle-command-palette-internal'),
+    triggerGhostSearch: () => electron_1.ipcRenderer.send('toggle-ghost-search-internal'),
 });
 //# sourceMappingURL=preload.js.map

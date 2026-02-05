@@ -31,7 +31,7 @@ export interface TabGroup {
 }
 
 export interface Settings {
-    theme: 'light' | 'dark' | 'system';
+    theme: 'light' | 'dark';
     searchEngine: 'google' | 'duckduckgo' | 'brave';
     uiDensity: 'compact' | 'comfortable';
     showBookmarksBar: boolean;
@@ -76,6 +76,7 @@ export interface Settings {
     keybinds: {
         ghostSearch: string;
         tabsShowcase: string;
+        commandPalette: string;
     };
     tabSleepEnabled: boolean;
     freezeMinutes: number;
@@ -116,7 +117,7 @@ interface BrowserState {
     bookmarks: Bookmark[];
     favorites: Bookmark[];
     settings: Settings;
-    settingsSection: 'general' | 'bookmarks' | 'appearance' | 'passwords';
+    settingsSection: 'general' | 'bookmarks' | 'appearance' | 'passwords' | 'performance';
     navFeedback: 'back' | 'forward' | null;
 
     // UI State
@@ -161,7 +162,14 @@ interface BrowserState {
     // Gemini Actions
     toggleGeminiPanel: () => void;
     toggleGlassCards: (open?: boolean) => void;
+    toggleCommandPalette: (open?: boolean) => void;
+    isCommandPaletteOpen: boolean;
     setUpdateReady: (ready: boolean) => void;
+
+    // Toast
+    toast: { message: string, type: 'success' | 'info' | 'error' } | null;
+    showToast: (message: string, type?: 'success' | 'info' | 'error') => void;
+
     isUpdateReady: boolean;
     toggleAdBlocker: () => void;
     setInternalPage: (page: 'history' | 'passwords' | null) => void;
@@ -202,6 +210,19 @@ interface BrowserState {
     wakeTab: (id: string) => void;
 }
 
+// Parse URL params immediately for initial state to prevent remounts
+const getInitialParams = () => {
+    if (typeof window === 'undefined') return { profileId: null, isIncognito: false, selectionMode: false };
+    const params = new URLSearchParams(window.location.search);
+    return {
+        profileId: params.get('profileId'),
+        isIncognito: params.get('incognito') === 'true',
+        selectionMode: params.get('selectionMode') === 'true'
+    };
+};
+
+const initialParams = getInitialParams();
+
 export const useStore = create<BrowserState>((set, get) => ({
     tabs: [{ id: '1', url: '', title: 'New Tab', isLoading: false, canGoBack: false, canGoForward: false, lastAccessed: Date.now(), isSleeping: false }],
     tabGroups: [],
@@ -209,7 +230,7 @@ export const useStore = create<BrowserState>((set, get) => ({
     bookmarks: [],
     favorites: [],
     settings: {
-        theme: 'system',
+        theme: 'dark', // Default to Dark, system removed
         searchEngine: 'google',
         uiDensity: 'comfortable',
         showBookmarksBar: false,
@@ -253,7 +274,8 @@ export const useStore = create<BrowserState>((set, get) => ({
         showHomeButton: false,
         keybinds: {
             ghostSearch: 'CommandOrControl+Space',
-            tabsShowcase: 'CommandOrControl+Shift+T'
+            tabsShowcase: 'CommandOrControl+Shift+T',
+            commandPalette: 'CommandOrControl+K'
         },
         tabSleepEnabled: true,
         freezeMinutes: 5
@@ -269,11 +291,12 @@ export const useStore = create<BrowserState>((set, get) => ({
     activeDownloads: {},
     downloadHistory: [],
     siteHistory: [],
-    isIncognito: false,
-    activeProfileId: null,
-    selectionMode: false,
+    isIncognito: initialParams.isIncognito,
+    activeProfileId: initialParams.profileId,
+    selectionMode: initialParams.selectionMode,
     isGhostSearchOpen: false,
     isGlassCardsOverviewOpen: false,
+    isCommandPaletteOpen: false,
     isUpdateReady: false,
 
     setUpdateReady: (ready) => set({ isUpdateReady: ready }),
@@ -285,6 +308,16 @@ export const useStore = create<BrowserState>((set, get) => ({
     toggleGhostSearch: (open) => set((state) => ({
         isGhostSearchOpen: open !== undefined ? open : !state.isGhostSearchOpen
     })),
+
+    toggleCommandPalette: (open) => set((state) => ({
+        isCommandPaletteOpen: open !== undefined ? open : !state.isCommandPaletteOpen
+    })),
+
+    toast: null,
+    showToast: (message, type = 'success') => {
+        set({ toast: { message, type } });
+        setTimeout(() => set({ toast: null }), 3000);
+    },
 
     addTab: (url = '') => set((state) => {
         const newTab: Tab = {
@@ -413,13 +446,18 @@ export const useStore = create<BrowserState>((set, get) => ({
         const updated = { ...state.settings, ...newSettings };
         (window as any).rizoAPI?.store.set('settings', updated);
 
+        // Notify main process to refresh shortcuts if they were changed
+        if (newSettings.keybinds) {
+            (window as any).rizoAPI?.ipcRenderer.send('update-shortcuts');
+        }
+
         if (newSettings.homePageConfig?.mode === 'night' || newSettings.homePageConfig?.mode === 'sunset') {
             updated.theme = 'dark';
         } else if (newSettings.homePageConfig?.mode === 'day') {
             updated.theme = 'light';
         }
 
-        if (updated.theme === 'dark' || (updated.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        if (updated.theme === 'dark') {
             document.documentElement.classList.add('dark');
         } else {
             document.documentElement.classList.remove('dark');
@@ -430,7 +468,7 @@ export const useStore = create<BrowserState>((set, get) => ({
         document.documentElement.classList.remove('mode-day', 'mode-night', 'mode-sunset');
         if (mode) {
             document.documentElement.classList.add(`mode-${mode}`);
-        } else if (updated.theme === 'dark' || (updated.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        } else if (updated.theme === 'dark') {
             document.documentElement.classList.add('mode-night');
         }
 
@@ -637,12 +675,17 @@ export const initStore = async () => {
         const storedBookmarks = await electron.store.get('bookmarks');
         const storedSettings = await electron.store.get('settings');
 
+        // Already handled in initial state, but keeping for verification logic if needed
         const urlParams = new URLSearchParams(window.location.search);
         const profileId = urlParams.get('profileId');
         const selectionMode = urlParams.get('selectionMode') === 'true';
         const isIncognito = urlParams.get('incognito') === 'true';
 
-        useStore.setState({ activeProfileId: profileId, selectionMode, isIncognito });
+        // Only update if actually different to prevent unnecessary remounts
+        const currentId = useStore.getState().activeProfileId;
+        if (profileId !== currentId) {
+            useStore.setState({ activeProfileId: profileId, selectionMode, isIncognito });
+        }
 
         if (storedBookmarks) {
             // Cleanup: Remove any corrupted bookmarks
@@ -680,7 +723,12 @@ export const initStore = async () => {
                     updated.theme = 'light';
                 }
 
-                if (updated.theme === 'dark' || (updated.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                // Force migration if they had 'system' previously stored
+                if ((updated.theme as any) === 'system') {
+                    updated.theme = 'dark';
+                }
+
+                if (updated.theme === 'dark') {
                     document.documentElement.classList.add('dark');
                 } else {
                     document.documentElement.classList.remove('dark');

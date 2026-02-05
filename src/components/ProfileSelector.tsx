@@ -23,6 +23,9 @@ export const ProfileSelector: React.FC = () => {
     const loadProfiles = async () => {
         const list = await (window as any).rizoAPI?.ipcRenderer.invoke('get-profiles-list');
         setProfiles(list || []);
+        if (!list || list.length === 0) {
+            setIsAdding(true);
+        }
         setLoading(false);
     };
 
@@ -44,6 +47,8 @@ export const ProfileSelector: React.FC = () => {
 
     const handleSelect = (id: string) => {
         (window as any).rizoAPI?.ipcRenderer.send('select-profile', { id, alwaysOpen });
+        // Also persist as last active
+        (window as any).rizoAPI?.ipcRenderer.invoke('set-active-profile', id);
     };
 
     const handleDelete = async (e: React.MouseEvent, id: string) => {
@@ -199,7 +204,9 @@ export const ProfileSelector: React.FC = () => {
                             >
                                 <div className="flex justify-between items-center mb-8">
                                     <h3 className="text-2xl font-extrabold text-zinc-900 tracking-tight">Create Profile</h3>
-                                    <button onClick={() => setIsAdding(false)} className="p-2 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-900 transition-all"><X /></button>
+                                    {profiles.length > 0 && (
+                                        <button onClick={() => setIsAdding(false)} className="p-2 rounded-full hover:bg-zinc-100 text-zinc-400 hover:text-zinc-900 transition-all"><X /></button>
+                                    )}
                                 </div>
                                 <div className="space-y-8">
                                     <div className="space-y-3">

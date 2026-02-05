@@ -98,12 +98,11 @@ export const GeminiPanel: React.FC = () => {
         <AnimatePresence>
             {isGeminiPanelOpen && (
                 <motion.div
-                    initial={{ x: 400, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    exit={{ x: 400, opacity: 0 }}
-                    transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                    style={{ width: localWidth }}
-                    className="relative flex flex-col h-full z-30 bg-background border-l border-white/10 shadow-2xl overflow-hidden"
+                    initial={{ width: 0, opacity: 0 }}
+                    animate={{ width: localWidth, opacity: 1 }}
+                    exit={{ width: 0, opacity: 0 }}
+                    transition={{ type: "spring", damping: 30, stiffness: 250 }}
+                    className="relative flex flex-col h-full z-30 bg-background border-l border-white/10 shadow-2xl overflow-hidden shrink-0"
                 >
                     {/* Resize Handle (Left Edge) */}
                     <div

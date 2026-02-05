@@ -104,11 +104,58 @@ window.addEventListener('submit', (e) => {
     }
 });
 
+// Text Selection Listener for Whisper Bar
+// Text Selection Listener for Whisper Bar
+document.addEventListener('mouseup', () => {
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    const text = selection.toString().trim();
+    if (text.length > 1) {
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+
+        console.log("[PRELOAD] Selection detected:", text);
+        console.log("[PRELOAD] Rect:", rect);
+
+        const data = {
+            text,
+            rect: {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                top: rect.top,
+                left: rect.left
+            }
+        };
+
+        // Send to both channels for maximum compatibility
+        ipcRenderer.sendToHost('selection-data', data);
+        ipcRenderer.sendToHost('SHOW_WHISPER_BAR', data);
+        console.log("[PRELOAD] IPC Pings sent to host");
+    } else {
+        // Optional: clear selection logic if needed
+        // ipcRenderer.sendToHost('selection-cleared');
+    }
+});
+
+// Also clear on mostly click if not selecting
+document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+        ipcRenderer.sendToHost('text-selection-cleared');
+    }
+});
+
 contextBridge.exposeInMainWorld('rizoAPI', {
     store: {
         get: (key: string) => ipcRenderer.invoke('get-store-value', key),
         set: (key: string, value: any) => ipcRenderer.invoke('set-store-value', key, value),
     },
+    // Profiles
+    getProfilesList: () => ipcRenderer.invoke('get-profiles-list'),
+    createProfile: (data: any) => ipcRenderer.invoke('create-profile', data),
     window: {
         minimize: () => ipcRenderer.send('minimize-window'),
         maximize: () => ipcRenderer.send('maximize-window'),
@@ -139,5 +186,9 @@ contextBridge.exposeInMainWorld('rizoAPI', {
             ipcRenderer.removeAllListeners(channel); // Brute force removal for this simplified bridge
         },
         invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
-    }
+    },
+    // Shortcuts Trigger Bridge
+    triggerCommandPalette: () => ipcRenderer.send('toggle-command-palette-internal'),
+    triggerGhostSearch: () => ipcRenderer.send('toggle-ghost-search-internal'),
 });
+

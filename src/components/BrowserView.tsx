@@ -10,6 +10,7 @@ import { PermissionPopup } from './PermissionPopup';
 import { FindBar } from './FindBar';
 import { PasswordsPage } from './PasswordsPage';
 import { ZoomBar } from './ZoomBar';
+import { WhisperBar } from './WhisperBar';
 
 interface BrowserViewProps {
     tabId: string;
@@ -30,6 +31,11 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
         permission: string;
         request: any;
         origin: string;
+    } | null>(null);
+    const [whisperSelection, setWhisperSelection] = React.useState<{
+        text: string;
+        x: number;
+        y: number;
     } | null>(null);
     const { updateTab, tabs, triggerNavFeedback, addTab, recordVisit } = useStore();
 
@@ -141,10 +147,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                     return;
                 }
 
-                // If explicitly denied previously, we might want to auto-deny or still ask?
-                // Standard browser behavior is usually to remember Deny too.
-                // For now, let's just asking if not explicitly allowed.
-
                 console.log('Permission requested:', e.permission);
                 setPermissionReq({
                     permission: e.permission,
@@ -153,7 +155,68 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                 });
             };
 
+            const handleIpcMessage = (e: any) => {
+                console.log("[FRONTEND] Received IPC message:", e.channel, e.args);
+                if (e.channel === 'selection-data') {
+                    const { text, rect } = e.args[0];
+                    if (!text || !rect) return;
+
+                    const x = rect.left ?? rect.x ?? 0;
+                    const y = rect.top ?? rect.y ?? 0;
+
+                    const finalX = x;
+                    const finalY = Math.max(10, y - 60);
+
+                    console.log("[FRONTEND] Setting Whisper Selection:", { text, x: finalX, y: finalY });
+                    setWhisperSelection({
+                        text,
+                        x: finalX,
+                        y: finalY,
+                        width: rect.width || 0,
+                        height: rect.height || 0
+                    } as any);
+                } else if (e.channel === 'text-selection-cleared') {
+                    console.log("[FRONTEND] Clearing selection");
+                    setWhisperSelection(null);
+                }
+            };
+
             wv.addEventListener('permission-request', handlePermissionRequest);
+            wv.addEventListener('ipc-message', handleIpcMessage);
+
+            const handleBeforeInput = (e: any) => {
+                const isControl = e.control || e.meta;
+                const key = e.key.toLowerCase();
+
+                // Get current shortcuts from store
+                const settings = useStore.getState().settings;
+                const paletteKey = settings.keybinds?.commandPalette || 'CommandOrControl+K';
+                const ghostSearchKey = settings.keybinds?.ghostSearch || 'CommandOrControl+Space';
+
+                // Helper to check match (simplified for renderer bridge)
+                const isMatch = (shortcut: string, event: any) => {
+                    const parts = shortcut.toLowerCase().split('+');
+                    const needsCtrl = parts.includes('control') || parts.includes('ctrl') || parts.includes('commandorcontrol');
+                    const needsShift = parts.includes('shift');
+                    const needsAlt = parts.includes('alt');
+                    const target = parts.find(p => !['control', 'ctrl', 'commandorcontrol', 'command', 'cmd', 'shift', 'alt', 'meta'].includes(p));
+
+                    if (needsCtrl && !isControl) return false;
+                    if (needsShift && !event.shift) return false;
+                    if (needsAlt && !event.alt) return false;
+
+                    if (target === 'space') return key === ' ' || key === 'space';
+                    return key === target;
+                };
+
+                if (isMatch(paletteKey, e)) {
+                    (window as any).rizoAPI?.triggerCommandPalette();
+                } else if (isMatch(ghostSearchKey, e)) {
+                    (window as any).rizoAPI?.triggerGhostSearch();
+                }
+            };
+
+            wv.addEventListener('before-input-event', handleBeforeInput);
 
             return () => {
                 wv.removeEventListener('did-start-loading', handleDidStartLoading);
@@ -169,7 +232,10 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                 wv.removeEventListener('did-navigate', injectAdBlockCSS);
                 wv.removeEventListener('did-fail-load', handleDidFailLoad);
                 wv.removeEventListener('permission-request', handlePermissionRequest);
+                wv.removeEventListener('ipc-message', handleIpcMessage);
+                wv.removeEventListener('before-input-event', handleBeforeInput);
             };
+
         }
     }, [onMount, tabId]);
 
@@ -192,9 +258,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
         };
 
         // Listen for open new tab requests from main process
-        const onCreateTab = (_: any, { url }: { url: string }) => {
-            addTab(url);
-        };
+
 
         const ipc = (window as any).rizoAPI?.ipcRenderer;
         if (ipc) {
@@ -210,48 +274,32 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
             ipc.on('go-back', onGoBack);
             ipc.on('go-forward', onGoForward);
 
-            ipc.on('create-tab', onCreateTab);
 
-            // Gemini Context Extraction
+
             ipc.on('gemini-get-context', () => {
                 if (!isActive || !webviewRef.current) return;
                 const wv = webviewRef.current;
-
                 try {
-                    // Execute script to get clean text
                     wv.executeJavaScript(`
                         (() => {
                             const title = document.title;
                             const url = window.location.href;
-                            // Basic content extraction: get text from paragraphs to avoid navigation/ads noise
                             const paragraphs = Array.from(document.querySelectorAll('p')).map(p => p.innerText).join('\\n\\n');
                             const selection = window.getSelection().toString();
-                            
-                            // Fallback if no paragraphs found, just take body text but limit it
-                            const rawText = document.body.innerText;
-                            const content = selection || (paragraphs.length > 50 ? paragraphs : rawText);
-                            
-                            return {
-                                title,
-                                url,
-                                content: content.substring(0, 5000) // Limit to 5000 chars
-                            };
+                            const content = selection || (paragraphs.length > 50 ? paragraphs : document.body.innerText);
+                            return { title, url, content: content.substring(0, 5000) };
                         })()
                     `).then((data: any) => {
                         ipc.send('gemini-context-data', data);
-                    }).catch((e: any) => console.error('Failed to extract context for Gemini', e));
-                } catch (e) {
-                    console.error('Gemini extraction failed', e);
-                }
+                    }).catch((e: any) => console.error('Gemini extraction failed', e));
+                } catch (e) { console.error('Gemini extraction failed', e); }
             });
 
-            // Find Bar Toggle
             ipc.on('toggle-find-bar', () => {
                 if (!isActive) return;
                 setIsFindBarOpen(prev => !prev);
             });
 
-            // Zoom Controls
             ipc.on('zoom-in', () => {
                 if (!isActive) return;
                 setIsZoomBarOpen(true);
@@ -263,6 +311,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                 if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
                 zoomTimerRef.current = setTimeout(() => setIsZoomBarOpen(false), 5000);
             });
+
             ipc.on('zoom-out', () => {
                 if (!isActive) return;
                 setIsZoomBarOpen(true);
@@ -274,6 +323,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                 if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current);
                 zoomTimerRef.current = setTimeout(() => setIsZoomBarOpen(false), 5000);
             });
+
             ipc.on('zoom-reset', () => {
                 if (!isActive) return;
                 setIsZoomBarOpen(true);
@@ -291,11 +341,12 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                 ipc.off('reload', onReload);
                 ipc.off('go-back', onGoBack);
                 ipc.off('go-forward', onGoForward);
-                ipc.off('create-tab', onCreateTab);
-                ipc.off('toggle-find-bar', () => { });
-                ipc.off('zoom-in', () => { });
-                ipc.off('zoom-out', () => { });
-                ipc.off('zoom-reset', () => { });
+
+                ipc.off('gemini-get-context');
+                ipc.off('toggle-find-bar');
+                ipc.off('zoom-in');
+                ipc.off('zoom-out');
+                ipc.off('zoom-reset');
             }
         };
     }, [isActive, addTab]);
@@ -379,7 +430,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
         }
     };
 
-    const partition = useStore.getState().isIncognito ? 'incognito' : (useStore.getState().activeProfileId ? `persist:profile_${useStore.getState().activeProfileId}` : 'persist:default');
+    const partition = useStore.getState().isIncognito ? 'incognito' : (useStore.getState().activeProfileId ? `persist:profile_${useStore.getState().activeProfileId}` : 'persist:rizo');
     const isGhostSearchOpen = useStore.getState().isGhostSearchOpen;
 
     return (
@@ -403,11 +454,10 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                         )}
                         src={currentUrl || 'about:blank'}
                         preload={preloadPath ? `file://${preloadPath.replace(/\\/g, '/')}` : undefined}
-                        webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=yes"
+                        webpreferences="contextIsolation=yes, nodeIntegration=no, allowRunningInsecureContent=yes, sandbox=no, nativeWindowOpen=yes"
                         partition={partition}
-                        {...({
-                            allowpopups: "true"
-                        } as any)}
+
+                        allowpopups={"true" as any}
                     />
                 )}
 
@@ -511,6 +561,22 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ tabId, isActive, isVis
                         safeWebViewAction(webviewRef.current, (wv) => wv.setZoomFactor(1));
                     }}
                 />
+
+                {/* The Whisper Bar */}
+                {whisperSelection && (
+                    <WhisperBar
+                        x={whisperSelection.x}
+                        y={whisperSelection.y}
+                        selectedText={whisperSelection.text}
+                        onClose={() => {
+                            setWhisperSelection(null);
+                            // Optional: clear selection in webview?
+                            safeWebViewAction(webviewRef.current, (wv) => {
+                                wv.executeJavaScript(`window.getSelection().removeAllRanges()`);
+                            });
+                        }}
+                    />
+                )}
             </div>
         </ErrorBoundary>
     );

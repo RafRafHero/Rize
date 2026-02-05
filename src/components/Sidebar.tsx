@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, X, Minus, Users, ChevronLeft, ChevronRight, FolderPlus } from 'lucide-react';
+import { Plus, X, Minus, Users, ChevronLeft, ChevronRight, FolderPlus, Sparkles } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -27,8 +27,9 @@ import { SortableTab } from './SortableTab';
 import { TabGroup } from './TabGroup';
 
 export const Sidebar: React.FC = () => {
-    const { tabs, tabGroups, activeTabId, setActiveTab, addTab, removeTab, settings, updateSettings, isIncognito, createTabGroup, updateTabGroup, moveTabToGroup, reorderTabs } = useStore();
+    const { tabs, tabGroups, activeTabId, setActiveTab, addTab, removeTab, settings, updateSettings, isIncognito, createTabGroup, updateTabGroup, moveTabToGroup, reorderTabs, showToast } = useStore();
     const isCompact = settings.isSidebarCollapsed;
+    const [isOrganizing, setIsOrganizing] = useState(false);
 
     // DnD Sensors
     const sensors = useSensors(
@@ -177,6 +178,60 @@ export const Sidebar: React.FC = () => {
         }
     };
 
+    const handleOrganizeTabs = async () => {
+        if (tabs.length < 2) return;
+        setIsOrganizing(true);
+        try {
+            const tabInfo = tabs.map(t => ({ id: t.id, title: t.title, url: t.url }));
+            const response = await (window as any).rizoAPI?.ipcRenderer.invoke('ask-ai', {
+                text: JSON.stringify(tabInfo),
+                prompt: `Group these tabs into 3-5 logical categories (e.g., Work, Social, Research, Shopping). 
+                Return ONLY a JSON object with this structure:
+                { "groups": [ { "name": "Category Name", "tabIds": ["id1", "id2"], "color": "blue|red|green|purple|orange" } ] }`
+            });
+
+            // Clean response (sometimes AI wraps in ```json ... ```)
+            const cleanJson = response.replace(/```json|```/g, '').trim();
+            const { groups } = JSON.parse(cleanJson);
+
+            // Apply groups
+            for (const g of groups) {
+                // Create group
+                const { tabGroups: currentGroups } = useStore.getState();
+                let groupId: string;
+
+                // Check if group with same name exists
+                const existingGroup = currentGroups.find(cg => cg.title === g.name);
+                if (existingGroup) {
+                    groupId = existingGroup.id;
+                } else {
+                    // Manual creation to get ID immediately
+                    groupId = crypto.randomUUID();
+                    useStore.setState(state => ({
+                        tabGroups: [...state.tabGroups, {
+                            id: groupId,
+                            title: g.name,
+                            color: g.color || 'blue',
+                            isCollapsed: false,
+                            tabIds: []
+                        }]
+                    }));
+                }
+
+                // Move tabs
+                for (const tid of g.tabIds) {
+                    moveTabToGroup(tid, groupId);
+                }
+            }
+            console.log(`Organized ${tabs.length} tabs into ${groups.length} groups.`);
+        } catch (error) {
+            console.error('Failed to organize tabs:', error);
+        } finally {
+            setIsOrganizing(false);
+        }
+    };
+
+
     // Droppable for main area (to allow dragging out of groups)
     const { setNodeRef: setOrphanedRef } = useDroppable({
         id: 'orphaned-list'
@@ -290,6 +345,7 @@ export const Sidebar: React.FC = () => {
                         <Plus size={20} />
                         {!isCompact && <span className="text-sm font-medium">New Tab</span>}
                     </motion.button>
+
                 </div>
 
                 <DragOverlay dropAnimation={dropAnimation}>
@@ -304,21 +360,67 @@ export const Sidebar: React.FC = () => {
                 </DragOverlay>
             </DndContext>
 
-            {/* Profile Switcher */}
-            {!isCompact ? (
-                <div className="mt-auto pt-2 border-t border-white/5 w-full flex flex-col gap-1">
-                    <motion.button onClick={() => (window as any).rizoAPI?.ipcRenderer.send('switch-to-profile-selector')} className={cn("flex items-center gap-2 p-3 rounded-xl transition-colors hover:bg-white/5 no-drag", isIncognito ? "text-white/70 hover:text-white" : "text-muted-foreground hover:text-foreground")}>
-                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400"><Users size={18} /></div>
-                        <span className="text-sm font-semibold tracking-tight">Switch Profile</span>
-                    </motion.button>
-                </div>
-            ) : (
-                <div className="mt-auto py-2 border-t border-white/5 flex flex-col items-center">
-                    <motion.button onClick={() => (window as any).rizoAPI?.ipcRenderer.send('switch-to-profile-selector')} className={cn("p-2 rounded-xl hover:bg-white/5 transition-colors no-drag", isIncognito ? "text-white/70 hover:text-white" : "text-muted-foreground hover:text-foreground")}>
-                        <Users size={20} />
-                    </motion.button>
-                </div>
-            )}
+            {/* Profile Switcher & Magic Organize */}
+            <div className={cn("mt-auto pt-2 border-t border-white/5 w-full flex gap-1", isCompact ? "flex-col items-center py-2" : "flex-row px-2 pb-2")}>
+                <motion.button
+                    onClick={() => (window as any).rizoAPI?.ipcRenderer.send('switch-to-profile-selector')}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={cn(
+                        "flex items-center gap-3 p-3 rounded-xl transition-colors hover:bg-white/5 no-drag",
+                        isCompact ? "w-10 h-10 justify-center" : "flex-1",
+                        isIncognito ? "text-white/70 hover:text-white" : "text-muted-foreground hover:text-foreground"
+                    )}
+                    title="Switch Profile"
+                >
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 shrink-0">
+                        <Users size={18} />
+                    </div>
+                    {!isCompact && <span className="text-sm font-semibold tracking-tight">Switch Profile</span>}
+                </motion.button>
+
+                <motion.button
+                    onClick={() => handleOrganizeTabs()}
+                    disabled={isOrganizing}
+                    whileHover={{
+                        scale: 1.2,
+                        rotate: 12,
+                        transition: { type: "spring", stiffness: 400, damping: 25, mass: 1 }
+                    }}
+                    whileTap={{
+                        scale: 0.85,
+                        transition: { type: "spring", stiffness: 400, damping: 25, mass: 1 }
+                    }}
+                    className={cn(
+                        "relative flex items-center justify-center transition-all shrink-0 w-11 h-11 no-drag focus:outline-none",
+                        "text-transparent bg-clip-text bg-gradient-to-br from-purple-400 to-yellow-300",
+                        isOrganizing && "opacity-50 cursor-wait"
+                    )}
+                    title="Magic Organize"
+                >
+                    {isOrganizing ? (
+                        <div className="w-5 h-5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                        <div className="relative">
+                            {/* SVG Gradient Icon hack */}
+                            <svg width="0" height="0" className="absolute">
+                                <linearGradient id="magic-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style={{ stopColor: '#c084fc' }} />
+                                    <stop offset="100%" style={{ stopColor: '#facc15' }} />
+                                </linearGradient>
+                            </svg>
+                            <Sparkles
+                                size={22}
+                                style={{ stroke: "url(#magic-gradient)", fill: "url(#magic-gradient)" }}
+                                className="drop-shadow-[0_0_8px_rgba(168,85,247,0.5)]"
+                            />
+                        </div>
+                    )}
+
+                    {/* Golden Glow Pulse Effect - subtle and circular */}
+                    <div className="absolute inset-0 rounded-full bg-yellow-400/10 animate-ping pointer-events-none" style={{ animationDuration: '3s' }} />
+                </motion.button>
+            </div>
 
             {/* Resize Handle */}
             {!isCompact && (

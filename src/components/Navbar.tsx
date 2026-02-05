@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     ArrowLeft, ArrowRight, RotateCw, Menu, X, Minus, Square, Star, SplitSquareHorizontal, Plus,
-    Search, Globe, ChevronRight, Glasses, Users, GripVertical, Shield, Home
+    Search, Globe, ChevronRight, Glasses, Users, GripVertical, Shield, Home, Sparkles
 } from 'lucide-react';
 import { GeminiIcon } from './GeminiIcon';
 import { BookmarkPopover } from './BookmarkPopover';
@@ -102,42 +102,20 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
         }
     };
 
-    // Listen for Download IPC events
+    // Listen for Update Ready
     useEffect(() => {
-        const onStarted = (_: any, item: any) => {
-            addDownload({ ...item, state: 'progressing', receivedBytes: 0 });
-        };
-        const onProgress = (_: any, data: any) => {
-            updateDownload(data.id, {
-                receivedBytes: data.receivedBytes,
-                totalBytes: data.totalBytes,
-                state: data.state,
-                estimatedTimeRemaining: data.estimatedTimeRemaining
-            });
-        };
-        const onComplete = (_: any, data: any) => {
-            completeDownload(data);
-        };
-
-        // Update Ready Listener
         const onUpdateReady = () => {
             useStore.getState().setUpdateReady(true);
         };
 
         const ipc = (window as any).rizoAPI?.ipcRenderer;
         if (ipc) {
-            ipc.on('download-started', onStarted);
-            ipc.on('download-progress', onProgress);
-            ipc.on('download-complete', onComplete);
             ipc.on('update-available', onUpdateReady); // Red dot on available
             ipc.on('update-ready', onUpdateReady);     // Also on downloaded
         }
 
         return () => {
             if (ipc) {
-                ipc.off('download-started', onStarted);
-                ipc.off('download-progress', onProgress);
-                ipc.off('download-complete', onComplete);
                 ipc.off('update-available', onUpdateReady);
                 ipc.off('update-ready', onUpdateReady);
             }
@@ -421,6 +399,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onReload, onBack, onForward }) =
                         </motion.button>
                         <AdBlockerPanel />
                     </div>
+
+                    <motion.button
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => useStore.getState().toggleCommandPalette()}
+                        className={cn(
+                            "p-2 rounded-xl transition-all duration-300",
+                            "text-muted-foreground hover:text-foreground hover:bg-white/10"
+                        )}
+                        title="Search with AI"
+                    >
+                        <Sparkles size={18} className="text-primary" />
+                    </motion.button>
 
                     <motion.button
                         whileTap={{ scale: 0.9 }}

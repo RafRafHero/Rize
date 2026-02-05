@@ -14,56 +14,53 @@ const initElectronStore = async () => {
   return store;
 };
 
-const registerAppShortcuts = (mainWindow: BrowserWindow | null) => {
-  globalShortcut.unregisterAll();
-  const settings = store?.get('settings');
-  const ghostSearchKey = settings?.keybinds?.ghostSearch || 'CommandOrControl+Space';
+// --- Global Shortcut Variables (Main Process Cache) ---
+let currentPaletteKey = 'CommandOrControl+K';
+let currentGhostSearchKey = 'CommandOrControl+Space';
+let currentShowcaseKey = 'CommandOrControl+Shift+T';
+let shortcutsEnabled = true;
 
-  // Register Ghost Search Shortcut
+async function refreshShortcutCache() {
+  console.log('[Main] Refreshing shortcut cache...');
   try {
-    const searchRegistered = globalShortcut.register(ghostSearchKey, () => {
-      mainWindow?.webContents.send('toggle-ghost-search');
-    });
-    if (searchRegistered) {
-      console.log(`[Main] Ghost Search Shortcut Registered: ${ghostSearchKey}`);
-    } else {
-      console.warn(`[Main] Failed to register Ghost Search Shortcut: ${ghostSearchKey}`);
+    const s = await initElectronStore();
+    let settings = s.get('settings');
+
+    if (!settings || typeof settings !== 'object') settings = { keybinds: {} };
+    if (!settings.keybinds) settings.keybinds = {};
+
+    let changed = false;
+    if (settings.keybinds.commandPalette === 'CommandOrControl+K' || !settings.keybinds.commandPalette) {
+      settings.keybinds.commandPalette = 'CommandOrControl+Alt+K';
+      changed = true;
     }
-  } catch (err) {
-    console.error(`[Main] Invalid shortcut sequence: ${ghostSearchKey}`, err);
+    if (settings.keybinds.ghostSearch === 'CommandOrControl+Space' || !settings.keybinds.ghostSearch) {
+      settings.keybinds.ghostSearch = 'CommandOrControl+Alt+Space';
+      changed = true;
+    }
+    if (settings.keybinds.tabsShowcase === 'CommandOrControl+Shift+T' || !settings.keybinds.tabsShowcase) {
+      settings.keybinds.tabsShowcase = 'CommandOrControl+Alt+Shift+T';
+      changed = true;
+    }
+
+    if (changed) s.set('settings', settings);
+
+    currentPaletteKey = settings.keybinds.commandPalette || 'CommandOrControl+Alt+K';
+    currentGhostSearchKey = settings.keybinds.ghostSearch || 'CommandOrControl+Alt+Space';
+    currentShowcaseKey = settings.keybinds.tabsShowcase || 'CommandOrControl+Alt+Shift+T';
+
+    console.log('[Main] Shortcut cache ready:', { currentPaletteKey, currentGhostSearchKey, currentShowcaseKey });
+  } catch (e) {
+    console.error('[Main] ERROR in refreshShortcutCache:', e);
+    currentPaletteKey = 'CommandOrControl+Alt+K';
+    currentGhostSearchKey = 'CommandOrControl+Alt+Space';
+    currentShowcaseKey = 'CommandOrControl+Alt+Shift+T';
   }
+}
 
-  // Register Incognito Shortcut
-  globalShortcut.register('CommandOrControl+Shift+N', () => {
-    // This is handled via launchIncognito but we need to ensure it's registered
-    // Actually launchIncognito is defined later, let's just make sure it's callable
-    (global as any).launchIncognito?.();
-  });
 
-  // Register Gemini Summarize Shortcut
-  globalShortcut.register('Alt+S', () => {
-    mainWindow?.webContents.send('gemini-get-context');
-  });
+// Shortcuts are now handled via before-input-event in web-contents-created
 
-  // Register Find in Page Shortcut (Ctrl+F)
-  globalShortcut.register('CommandOrControl+F', () => {
-    mainWindow?.webContents.send('toggle-find-bar');
-  });
-
-  // Register Zoom Shortcuts
-  globalShortcut.register('CommandOrControl+Plus', () => {
-    mainWindow?.webContents.send('zoom-in');
-  });
-  globalShortcut.register('CommandOrControl+=', () => {
-    mainWindow?.webContents.send('zoom-in');
-  });
-  globalShortcut.register('CommandOrControl+-', () => {
-    mainWindow?.webContents.send('zoom-out');
-  });
-  globalShortcut.register('CommandOrControl+0', () => {
-    mainWindow?.webContents.send('zoom-reset');
-  });
-};
 
 // initialization happens in app.ready
 
@@ -98,9 +95,9 @@ if (process.defaultApp) {
 let deeplinkUrl: string | null = null;
 
 
-// Global User-Agent spoofing to bypass Google's Electron detection
-const FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0';
-app.userAgentFallback = FIREFOX_UA;
+// Global User-Agent spoofing to bypass Google's Electron detection - Using a modern Chrome UA
+const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+app.userAgentFallback = CHROME_UA;
 
 // Enterprise AdBlocker Logic
 let blockerEngine: ElectronBlocker | null = null;
@@ -148,20 +145,8 @@ const enableAdBlocker = async (ses: Electron.Session) => {
   console.log('[Main] AdBlocker enabled for session with modern preload API');
 };
 
-ipcMain.on('update-adblocker-settings', async () => {
-  console.log('[Main] Updating AdBlocker settings...');
-  blockerEngine = null; // Reset engine to clear previous whitelist filters
-  const activeSessionsList = Array.from(activeSessions);
-  for (const ses of activeSessionsList) {
-    const blocker = await getBlocker();
-    (blocker as any).disableBlockingInSession(ses);
+// registerIpcHandlers is defined at the bottom of the file
 
-    const settings = store.get('settings');
-    if (settings?.adBlockEnabled) {
-      await enableAdBlocker(ses);
-    }
-  }
-});
 
 // Profile Management Configuration
 const originalUserDataPath = app.getPath('userData');
@@ -173,7 +158,24 @@ if (!fs.existsSync(profilesDir)) {
 }
 
 let currentProfileId = process.argv.find(arg => arg.startsWith('--profile-id='))?.split('=')[1];
+const isSelectionMode = process.argv.includes('--selection-mode=true') || process.argv.includes('--selection-mode');
 const isIncognitoProcess = process.argv.includes('--incognito');
+
+// Auto-load Single Profile Logic (if not explicitly selecting or incognito)
+if (!currentProfileId && !isSelectionMode && !isIncognitoProcess) {
+  try {
+    const s = new (require('electron-store'))();
+    const profiles: any[] = s.get('profiles') || [];
+    if (profiles.length === 1) {
+      currentProfileId = profiles[0].id; // Auto-select the only profile
+    }
+    // Also check last active profile
+    const lastActive = s.get('lastActiveProfileId');
+    if (!currentProfileId && lastActive && profiles.find((p: any) => p.id === lastActive)) {
+      currentProfileId = lastActive as string;
+    }
+  } catch (e) { console.error('Failed to auto-load profile', e); }
+}
 
 if (isIncognitoProcess) {
   const incognitoPath = path.join(app.getPath('appData'), 'rizo-incognito-' + Date.now());
@@ -212,16 +214,41 @@ const createWindow = (isIncognito = false) => {
       webviewTag: true, // Enable <webview> tag
       nodeIntegration: false,
       contextIsolation: true,
-      partition: isIncognito ? 'incognito' : (currentProfileId ? `persist:profile_${currentProfileId}` : undefined),
+      partition: isIncognito ? 'incognito' : (currentProfileId ? `persist:profile_${currentProfileId}` : 'persist:rizo'),
     },
   });
 
   // Global Navigation & Window Protections (Apply to webviews too)
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  mainWindow.webContents.setWindowOpenHandler(({ url, disposition, windowFeatures }) => {
     // Allow Google Drive downloads and docs to open (they often trigger will-download)
     if (url.includes('drive.google.com/download') || url.includes('doc-')) {
       return { action: 'allow' };
     }
+
+    // Handle Popups (forced by features or disposition)
+    if (disposition === 'new-window' || (windowFeatures && windowFeatures !== '')) {
+      console.log(`[Main] Allowing popup window for URL: ${url}`);
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+          frame: true, // Native frame for popups
+          titleBarStyle: 'default',
+          show: true,
+          webPreferences: {
+            partition: isIncognitoProcess ? 'incognito' : (currentProfileId ? `persist:profile_${currentProfileId}` : 'persist:rizo'),
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+            webviewTag: true,
+          }
+        }
+      };
+    }
+
+    // Default: Open in a new tab within the same window
+    console.log(`[Main] Redirecting to new tab: ${url}`);
+    mainWindow?.webContents.send('create-tab', { url });
     return { action: 'deny' };
   });
 
@@ -238,7 +265,7 @@ const createWindow = (isIncognito = false) => {
   const queryParams = new URLSearchParams();
   if (isIncognito) queryParams.set('incognito', 'true');
   if (currentProfileId) queryParams.set('profileId', currentProfileId);
-  if (!currentProfileId && !isIncognito) queryParams.set('selectionMode', 'true');
+  if ((!currentProfileId && !isIncognito) || isSelectionMode) queryParams.set('selectionMode', 'true');
 
   const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
 
@@ -253,12 +280,122 @@ const createWindow = (isIncognito = false) => {
   // mainWindow.webContents.openDevTools();
 };
 
-const applyUASpoofing = (ses: Electron.Session) => {
-  ses.setUserAgent(FIREFOX_UA);
-  ses.webRequest.onBeforeSendHeaders((details, callback) => {
-    details.requestHeaders['User-Agent'] = FIREFOX_UA;
-    callback({ cancel: false, requestHeaders: details.requestHeaders });
+// Global Shortcut Fallback: Catch primary shortcuts even if focused inside any web-contents (webview/window)
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+
+    if (input.control || input.meta || input.alt) {
+      console.log(`[Shortcut EXTREME] Key: "${input.key}", Code: "${input.code}", Ctrl: ${input.control}, Shift: ${input.shift}, Meta: ${input.meta}, Alt: ${input.alt}, Enabled: ${shortcutsEnabled}`);
+    }
+
+    if (!shortcutsEnabled) return;
+
+    const isMac = process.platform === 'darwin';
+
+    const checkMatch = (keys: string, name: string) => {
+      if (!keys) return false;
+      const parts = keys.toLowerCase().split('+');
+      const hasCmdOrCtrl = parts.includes('commandorcontrol');
+      const needsCtrl = parts.includes('control') || parts.includes('ctrl') || (hasCmdOrCtrl && !isMac);
+      const needsCmd = parts.includes('command') || parts.includes('cmd') || parts.includes('meta') || (hasCmdOrCtrl && isMac);
+      const needsShift = parts.includes('shift');
+      const needsAlt = parts.includes('alt');
+      const targetKey = parts.find(p => !['control', 'ctrl', 'commandorcontrol', 'command', 'cmd', 'shift', 'alt', 'meta'].includes(p));
+
+      const matchModifiers = (needsCtrl === !!input.control) &&
+        (needsCmd === !!input.meta) &&
+        (needsShift === !!input.shift) &&
+        (needsAlt === !!input.alt);
+
+      if (!matchModifiers) return false;
+
+      if (targetKey) {
+        const ik = input.key.toLowerCase();
+        const ic = input.code.toLowerCase();
+        const tk = targetKey.toLowerCase();
+
+        const isKeyMatch = ik === tk || ic === `key${tk}` || ic === `digit${tk}` || ic === tk || (tk === ' ' && ik === ' ');
+        if (isKeyMatch) {
+          console.log(`[Shortcut Match TEST] ${name} matched!`);
+          return true;
+        }
+        return false;
+      }
+      return true;
+    };
+
+    const win = BrowserWindow.fromWebContents(contents) || BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    if (!win) return;
+
+    // --- Custom Action Shortcuts ---
+    if (checkMatch(currentPaletteKey, 'Palette')) {
+      win.webContents.send('trigger-command-palette', true); // Explicit ON
+      event.preventDefault();
+      return;
+    }
+
+    if (checkMatch(currentGhostSearchKey, 'Ghost')) {
+      win.webContents.send('trigger-ghost-search', true); // Explicit ON
+      event.preventDefault();
+      return;
+    }
+
+    if (checkMatch(currentShowcaseKey, 'Showcase')) {
+      win.webContents.send('toggle-tabs-showcase', true); // Explicit ON
+      event.preventDefault();
+      return;
+    }
+
+    // --- Standard Browser Shortcuts (Inside Listener) ---
+    if (checkMatch('CommandOrControl+Shift+I', 'DevTools') || input.key === 'F12') {
+      contents.openDevTools();
+      event.preventDefault();
+      return;
+    }
+
+    if (checkMatch('CommandOrControl+R', 'Refresh') || input.key === 'F5') {
+      contents.reload();
+      event.preventDefault();
+      return;
+    }
+
+    if (checkMatch('CommandOrControl+F', 'Find')) {
+      win.webContents.send('toggle-find-bar');
+      event.preventDefault();
+      return;
+    }
+
+    if (checkMatch('Alt+S', 'Gemini')) {
+      win.webContents.send('gemini-get-context');
+      event.preventDefault();
+      return;
+    }
+
+    if (checkMatch('CommandOrControl+Plus', 'ZoomIn') || checkMatch('CommandOrControl+=', 'ZoomIn')) {
+      win.webContents.send('zoom-in');
+      event.preventDefault();
+      return;
+    }
+    if (checkMatch('CommandOrControl+-', 'ZoomOut')) {
+      win.webContents.send('zoom-out');
+      event.preventDefault();
+      return;
+    }
+    if (checkMatch('CommandOrControl+0', 'ZoomReset')) {
+      win.webContents.send('zoom-reset');
+      event.preventDefault();
+      return;
+    }
   });
+});
+
+// --- User Agent Spoofing (Fix Google CAPTCHA & YouTube) ---
+const applyUASpoofing = (ses: Electron.Session) => {
+  const userAgent = CHROME_UA;
+  ses.setUserAgent(userAgent);
+  // We avoid onBeforeSendHeaders here to prevent conflicts with adblocker if possible, 
+  // setUserAgent is usually enough for most sites.
 };
 
 const applyAdBlocking = (ses: Electron.Session) => {
@@ -274,20 +411,18 @@ const applyAdBlocking = (ses: Electron.Session) => {
   }
 };
 
-const applyYouTubeNetworkBlocker = (ses: Electron.Session) => {
+const applyYouTubeNetworkBlocker = async (ses: Electron.Session) => {
+  // Instead of a separate onBeforeRequest (which conflicts with AdBlocker),
+  // we add these patterns to the blocker engine if it's available.
   const adPatterns = [
-    '*://*.doubleclick.net/*',
-    '*://*.googleads.g.doubleclick.net/*',
-    '*://youtube.com/get_midroll_info*',
-    '*://youtube.com/api/stats/ads*'
+    '||doubleclick.net^',
+    '||googleads.g.doubleclick.net^',
+    '||youtube.com/get_midroll_info^',
+    '||youtube.com/api/stats/ads^'
   ];
 
-  ses.webRequest.onBeforeRequest({ urls: adPatterns }, (details, callback) => {
-    if (details.url.includes('doubleclick.net')) {
-      console.log('[AdBlock] YouTube Ad Blocked (doubleclick.net)');
-    }
-    callback({ cancel: true });
-  });
+  const blocker = await getBlocker();
+  (blocker as any).addFilters(adPatterns);
 };
 
 const setupOptimizations = (ses: Electron.Session) => {
@@ -324,13 +459,7 @@ autoUpdater.on('error', (err) => {
   console.error('[AutoUpdater] Error:', err);
 });
 
-ipcMain.handle('get-app-version', () => {
-  return app.getVersion();
-});
 
-ipcMain.handle('quit-and-install', () => {
-  autoUpdater.quitAndInstall(false, true);
-});
 
 // Poll for updates every 30 minutes
 setInterval(() => {
@@ -345,7 +474,13 @@ setTimeout(() => {
 
 // Initialize app then setup store and optimizations
 app.whenReady().then(async () => {
-  await initElectronStore();
+  createWindow(isIncognitoProcess);
+  // 2. Background initialization
+  try {
+    initElectronStore().then(() => refreshShortcutCache());
+  } catch (e) {
+    console.error('[Main] Store init failure', e);
+  }
 
   // Register main preload script using modern API
   session.defaultSession.registerPreloadScript({
@@ -355,6 +490,7 @@ app.whenReady().then(async () => {
   });
 
   setupOptimizations(session.defaultSession);
+  setupDownloadManager(session.defaultSession);
 
   // Use a persistent partition for incognito to allow caching within the session
   const incognitoSession = session.fromPartition('incognito');
@@ -364,47 +500,88 @@ app.whenReady().then(async () => {
     filePath: path.join(__dirname, 'preload.js')
   });
   setupOptimizations(incognitoSession);
+  setupDownloadManager(incognitoSession);
 
   // Ensure any other sessions (like profile partitions) also get the spoofing and blocking
   app.on('session-created', (ses) => {
+    const p = ses.getStoragePath() || 'default';
+    console.log(`[Main] Session created for partition: ${p}`);
     setupOptimizations(ses);
+    setupDownloadManager(ses);
   });
 
-  registerAppShortcuts(mainWindow);
+  registerIpcHandlers(); // Consolidated registration
 
-  setupDownloadManager(session.defaultSession);
-  createWindow(isIncognitoProcess);
+  // 3. Non-blocking shortcut registration
+  setTimeout(() => {
+    try {
+      // --- Shortcut Strategy: Menu Accelerators ---
+      const template: any[] = [
+        {
+          label: 'Shortcuts',
+          submenu: [
+            {
+              label: 'Trigger Palette',
+              accelerator: currentPaletteKey,
+              click: () => {
+                const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+                win?.webContents.send('trigger-command-palette', true);
+              }
+            },
+            {
+              label: 'Trigger Ghost Search',
+              accelerator: currentGhostSearchKey,
+              click: () => {
+                const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+                win?.webContents.send('trigger-ghost-search', true);
+              }
+            },
+            {
+              label: 'Toggle Showcase',
+              accelerator: currentShowcaseKey,
+              click: () => {
+                const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+                win?.webContents.send('toggle-tabs-showcase', true);
+              }
+            }
+          ]
+        }
+      ];
+
+      const menu = Menu.buildFromTemplate(template);
+      Menu.setApplicationMenu(menu);
+
+      // --- Global Shortcut Fallbacks (Log only) ---
+      globalShortcut.unregisterAll();
+      globalShortcut.register(currentPaletteKey, () => {
+        const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+        win?.webContents.send('trigger-command-palette', true);
+      });
+      globalShortcut.register(currentGhostSearchKey, () => {
+        const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+        win?.webContents.send('trigger-ghost-search', true);
+      });
+      globalShortcut.register(currentShowcaseKey, () => {
+        const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+        win?.webContents.send('toggle-tabs-showcase', true);
+      });
+
+      console.log('[Main] Keyboard Shortcuts Initialized Background');
+    } catch (e) {
+      console.error('[Main] Shortcut setup failure', e);
+    }
+  }, 2000);
 });
 
-ipcMain.on('update-shortcuts', () => {
-  console.log('[Main] Updating dynamic shortcuts...');
-  registerAppShortcuts(mainWindow);
-});
+// Handlers moved to registerIpcHandlers
 
-ipcMain.on('set-shortcuts-enabled', (event, enabled) => {
-  if (enabled) {
-    console.log('[Main] Shortcuts enabled');
-    registerAppShortcuts(mainWindow);
-  } else {
-    console.log('[Main] Shortcuts disabled (recording mode)');
-    globalShortcut.unregisterAll();
-  }
-});
 
 // --- Tab Sleep Logic ---
 // Track last accessed time per tab and check for inactive tabs
 const tabAccessMap = new Map<string, number>(); // tabId -> lastAccessed timestamp
 
-ipcMain.on('tab-accessed', (event, tabId: string) => {
-  tabAccessMap.set(tabId, Date.now());
-  console.log(`[TabSleep] Tab ${tabId} accessed`);
-});
+// Handlers moved to registerIpcHandlers
 
-ipcMain.on('wake-tab', (event, tabId: string) => {
-  tabAccessMap.set(tabId, Date.now());
-  console.log(`[TabSleep] Tab ${tabId} woken up`);
-  // The renderer should handle the actual visual wake-up
-});
 
 // Hibernation checker runs every 30 seconds
 setInterval(() => {
@@ -424,27 +601,13 @@ setInterval(() => {
   });
 }, 30000);
 
-// --- Default Browser IPC Handlers ---
-ipcMain.handle('is-default-browser', () => {
-  return app.isDefaultProtocolClient('http');
-});
+// --- IPC Handlers ---
+// Handlers moved to registerIpcHandlers
 
-ipcMain.handle('set-as-default', () => {
-  // On Windows 10+, this opens System Settings for the user to select manually
-  // As apps can't force themselves as default anymore
-  if (process.platform === 'win32') {
-    shell.openExternal('ms-settings:defaultapps');
-  } else if (process.platform === 'darwin') {
-    // On macOS, Electron's API usually works directly
-    app.setAsDefaultProtocolClient('http');
-    app.setAsDefaultProtocolClient('https');
-  } else {
-    // Linux - try xdg-settings
-    const { exec } = require('child_process');
-    exec('xdg-settings set default-web-browser rizo.desktop');
-  }
-  return true;
-});
+
+// --- AI Whisper Bar Handler ---
+// Handlers moved to registerIpcHandlers
+
 
 // Deep link handling for external URLs
 const handleDeepLink = (url: string) => {
@@ -514,11 +677,33 @@ app.on('web-contents-created', (event, contents) => {
     }
   });
 
-  // Window Open Handler: Allow specific download-related windows
-  contents.setWindowOpenHandler(({ url }) => {
+  // Window Open Handler: Handle popups and new tabs for all web contents
+  contents.setWindowOpenHandler(({ url, disposition, windowFeatures }) => {
     if (url.includes('drive.google.com/download') || url.includes('doc-')) {
       return { action: 'allow' };
     }
+
+    if (disposition === 'new-window' || (windowFeatures && windowFeatures !== '')) {
+      console.log(`[Main] Allowing popup for web-contents: ${url}`);
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+          frame: true, // Native frame for popups
+          titleBarStyle: 'default',
+          show: true,
+          webPreferences: {
+            partition: isIncognitoProcess ? 'incognito' : (currentProfileId ? `persist:profile_${currentProfileId}` : 'persist:rizo'),
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: true,
+            nodeIntegration: false,
+          }
+        }
+      };
+    }
+
+    console.log(`[Main] Sending new-tab request for web-contents: ${url}`);
+    mainWindow?.webContents.send('create-tab', { url });
     return { action: 'deny' };
   });
 });
@@ -652,51 +837,8 @@ const setupDownloadManager = (ses: Electron.Session) => {
   });
 };
 
-ipcMain.on('download-control', (event, { id, action }) => {
-  const item = downloadItems.get(id);
-  if (!item) return;
+// Handlers moved to registerIpcHandlers
 
-  if (action === 'pause' && !item.isPaused()) item.pause();
-  if (action === 'resume' && item.isPaused()) item.resume();
-  if (action === 'cancel') item.cancel();
-
-  // Send immediate update to sync isPaused state
-  mainWindow?.webContents.send('download-progress', {
-    id: id,
-    receivedBytes: item.getReceivedBytes(),
-    totalBytes: item.getTotalBytes(),
-    state: 'progressing', // Or item.getState()
-    isPaused: item.isPaused()
-  });
-});
-
-ipcMain.on('show-in-folder', (event, path) => {
-  shell.showItemInFolder(path);
-});
-
-ipcMain.on('open-file', (event, path) => {
-  shell.openPath(path);
-});
-
-// --- IPC Handlers for Store ---
-ipcMain.handle('get-store-value', async (event, key) => {
-  const s = await initElectronStore();
-  return s.get(key);
-});
-
-ipcMain.handle('set-store-value', async (event, key, value) => {
-  const s = await initElectronStore();
-  s.set(key, value);
-});
-
-ipcMain.handle('get-extension-storage', async (event, key) => {
-  const s = await initElectronStore();
-  return s.get(key);
-});
-
-ipcMain.handle('get-preload-path', () => {
-  return path.join(__dirname, 'preload.js');
-});
 
 const launchIncognito = () => {
   const { spawn } = require('child_process');
@@ -709,531 +851,468 @@ const launchIncognito = () => {
   }).unref();
 };
 
-ipcMain.on('open-incognito-window', () => {
-  launchIncognito();
-});
+// Handlers moved to registerIpcHandlers
 
-// Window Controls
-ipcMain.on('minimize-window', () => {
-  mainWindow?.minimize();
-});
-
-ipcMain.on('maximize-window', () => {
-  if (mainWindow?.isMaximized()) {
-    mainWindow.unmaximize();
-  } else {
-    mainWindow?.maximize();
-  }
-});
-
-ipcMain.on('close-window', () => {
-  mainWindow?.close();
-});
-
-ipcMain.on('clear-cache', async (event) => {
-  const ses = event.sender.session;
-  await ses.clearCache();
-  await ses.clearStorageData({
-    storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage']
-  });
-  console.log('[Main] Cache and Storage cleared');
-});
-
-// Navigation IPC
-ipcMain.on('webview-go-back', (event) => {
-  const wc = event.sender;
-  if (wc.canGoBack()) {
-    wc.goBack();
-    mainWindow?.webContents.send('navigation-feedback', 'back');
-  }
-});
-
-ipcMain.on('webview-go-forward', (event) => {
-  const wc = event.sender;
-  if (wc.canGoForward()) {
-    wc.goForward();
-    mainWindow?.webContents.send('navigation-feedback', 'forward');
-  }
-});
 
 // Context Menu IPC
-ipcMain.on('show-context-menu', (event, params) => {
-  const template: Array<Electron.MenuItemConstructorOptions | Electron.MenuItem> = [];
-  const webContents = event.sender;
-  const win = BrowserWindow.fromWebContents(webContents);
+// Handlers moved to registerIpcHandlers
 
-  // Helper to generic create tab
-  const createTab = (url: string) => {
-    if (win) {
-      win.webContents.send('create-tab', { url });
-    }
-  };
-
-  // --- Link Context ---
-  if (params.linkURL) {
-    template.push({
-      label: 'Open Link in New Tab',
-      click: () => createTab(params.linkURL)
-    });
-    template.push({
-      label: 'Copy Link Address',
-      click: () => clipboard.writeText(params.linkURL)
-    });
-    template.push({ type: 'separator' });
-  }
-
-  // --- Image Context ---
-  if (params.mediaType === 'image' && params.srcURL) {
-    template.push({
-      label: 'Open Image in New Tab',
-      click: () => createTab(`rizo://view-image?src=${encodeURIComponent(params.srcURL)}`)
-    });
-    template.push({
-      label: 'Save Image As...',
-      click: async () => {
-        // Dialog First flow
-        const defaultName = params.srcURL.split('/').pop()?.split('?')[0] || 'image.png';
-
-        // Show dialog immediately
-        const { filePath } = await dialog.showSaveDialog(win || mainWindow!, {
-          defaultPath: defaultName,
-          filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', '*'] }]
-        });
-
-        if (filePath) {
-          // Store the decision
-          saveAsPaths.set(params.srcURL, filePath);
-          webContents.downloadURL(params.srcURL);
-        }
-      }
-    });
-    template.push({
-      label: 'Copy Image',
-      click: () => {
-        // Use integer coordinates to be safe
-        webContents.copyImageAt(Math.floor(params.x), Math.floor(params.y));
-      }
-    });
-    template.push({
-      label: 'Copy Image Address',
-      click: () => clipboard.writeText(params.srcURL)
-    });
-    template.push({ type: 'separator' });
-  }
-
-  // --- Selection Context ---
-  if (params.selectionText) {
-    template.push({
-      label: `Search Google for "${params.selectionText.length > 20 ? params.selectionText.substring(0, 20) + '...' : params.selectionText}"`,
-      click: () => createTab(`https://www.google.com/search?q=${encodeURIComponent(params.selectionText)}`)
-    });
-    template.push({ type: 'separator' });
-    template.push({ role: 'cut' });
-    template.push({ role: 'copy' });
-    template.push({ role: 'paste' });
-    template.push({ type: 'separator' });
-  }
-
-  // --- Generic / Page Context ---
-  // Only show "Back/Forward/Reload" if not selecting text or image to keep it clean, 
-  // OR show them always if standard browser behavior (usually they are at the top or bottom).
-
-  if (!params.linkURL && !params.selectionText && params.mediaType === 'none') {
-    template.push({
-      label: 'Back',
-      enabled: params.editFlags?.canGoBack,
-      click: () => webContents.send('execute-browser-backward')
-    });
-    template.push({
-      label: 'Forward',
-      enabled: params.editFlags?.canGoForward,
-      click: () => webContents.send('execute-browser-forward')
-    });
-    template.push({
-      label: 'Reload',
-      click: () => webContents.send('reload')
-    });
-    template.push({ type: 'separator' });
-
-    template.push({
-      label: 'Print...',
-      click: () => webContents.print()
-    });
-    template.push({ type: 'separator' });
-  }
-
-  // --- Developer ---
-  template.push({
-    label: 'Inspect Element',
-    click: () => {
-      webContents.inspectElement(params.x, params.y);
-    }
-  });
-
-  const menu = Menu.buildFromTemplate(template);
-  if (win) {
-    menu.popup({ window: win });
-  }
-});
-
-ipcMain.on('open-dev-tools', (event) => {
-  event.sender.openDevTools();
-});
-
-// --- Gemini Context Bridge ---
-ipcMain.on('gemini-summarize-request', () => {
-  mainWindow?.webContents.send('gemini-get-context');
-});
-
-ipcMain.on('gemini-context-data', (_event, data) => {
-  // Forward to Gemini Panel (which is also in MainWindow renderer, but we broadcast it)
-  // The GeminiPanel component will pick this up
-  mainWindow?.webContents.send('gemini-inject-context', data);
-  // Also ensure Gemini Panel is open
-  mainWindow?.webContents.send('open-gemini-panel');
-});
-
-ipcMain.handle('get-suggestions', async (_event, query) => {
-  if (!query || !query.trim()) return [];
-
-  return new Promise((resolve) => {
-    const request = net.request(`http://google.com/complete/search?client=chrome&q=${encodeURIComponent(query)}`);
-
-    request.on('response', (response) => {
-      let body = '';
-      response.on('data', (chunk) => {
-        body += chunk;
-      });
-      response.on('end', () => {
-        try {
-          const parsed = JSON.parse(body);
-          // Google returns [query, [list of suggestions], ...]
-          // We just want the list at index 1
-          resolve(parsed[1] || []);
-        } catch (e) {
-          resolve([]); // Fail silently if JSON is bad
-        }
-      });
-    });
-
-    request.on('error', (err) => {
-      console.error('[Main] Search suggestion failed:', err);
-      resolve([]); // Don't crash the app, just return empty list
-    });
-
-    request.end();
-  });
-});
 
 // --- Profile Management IPC ---
-ipcMain.handle('get-profiles-list', () => {
-  if (!fs.existsSync(rootConfigPath)) return [];
-  try {
-    const config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8'));
-    return config.profiles || [];
-  } catch (e) {
-    return [];
-  }
-});
+// Handlers moved to registerIpcHandlers
 
-ipcMain.handle('create-profile', (_event, { name, avatar }) => {
-  const id = randomUUID();
-  let config: any = { profiles: [] };
-  if (fs.existsSync(rootConfigPath)) {
-    try {
-      config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8'));
-    } catch (e) { }
-  }
-
-  const newProfile = { id, name, avatar: avatar || 'default' };
-  config.profiles = [...(config.profiles || []), newProfile];
-
-  // Ensure profile dir exists
-  const profilePath = path.join(profilesDir, id);
-  if (!fs.existsSync(profilePath)) {
-    fs.mkdirSync(profilePath, { recursive: true });
-  }
-
-  fs.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
-  return newProfile;
-});
-
-ipcMain.on('select-profile', (_event, { id, alwaysOpen }) => {
-  if (alwaysOpen) {
-    let config: any = { profiles: [] };
-    if (fs.existsSync(rootConfigPath)) {
-      try { config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8')); } catch (e) { }
-    }
-    config.alwaysOpenProfile = id;
-    fs.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
-  }
-
-  // Relaunch
-  app.relaunch({ args: process.argv.slice(1).filter(a => !a.startsWith('--profile-id=')).concat([`--profile-id=${id}`]) });
-  app.exit(0);
-});
-
-ipcMain.on('switch-to-profile-selector', () => {
-  let config: any = { profiles: [] };
-  if (fs.existsSync(rootConfigPath)) {
-    try { config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8')); } catch (e) { }
-  }
-  delete config.alwaysOpenProfile; // Reset always open if we explicitly go back
-  fs.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
-
-  // Relaunch
-  app.relaunch({ args: process.argv.slice(1).filter(a => !a.startsWith('--profile-id=')).concat(['--selection-mode=true']) });
-  app.exit(0);
-});
 
 // --- Import Data IPC ---
-ipcMain.handle('import-browser-data', async (_event, browser: 'chrome' | 'edge') => {
-  const localAppData = process.env.LOCALAPPDATA || '';
-  let bookmarksPath = '';
-
-  if (browser === 'chrome') {
-    bookmarksPath = path.join(localAppData, 'Google', 'Chrome', 'User Data', 'Default', 'Bookmarks');
-  } else if (browser === 'edge') {
-    bookmarksPath = path.join(localAppData, 'Microsoft', 'Edge', 'User Data', 'Default', 'Bookmarks');
-  }
-
-  if (!fs.existsSync(bookmarksPath)) {
-    console.log(`[Import] No bookmarks found for ${browser} at ${bookmarksPath}`);
-    return { bookmarks: [] };
-  }
-
-  try {
-    const data = JSON.parse(fs.readFileSync(bookmarksPath, 'utf-8'));
-    const bookmarks: any[] = [];
-
-    // Check checksum or roots to be valid?
-    if (!data.roots) {
-      return { bookmarks: [] };
-    }
-
-    const processNode = (node: any, folderName?: string) => {
-      if (node.type === 'url') {
-        bookmarks.push({
-          id: randomUUID(),
-          title: node.name,
-          url: node.url,
-          favicon: `https://www.google.com/s2/favicons?sz=64&domain_url=${node.url}` // Auto-fetch favicon on frontend or store url
-        });
-      } else if (node.type === 'folder' && node.children) {
-        node.children.forEach((child: any) => processNode(child, node.name));
-      }
-    };
-
-    // Chrome structure has 'roots' -> 'bookmark_bar', 'other', 'synced'
-    if (data.roots.bookmark_bar) processNode(data.roots.bookmark_bar);
-    if (data.roots.other) processNode(data.roots.other);
-    if (data.roots.synced) processNode(data.roots.synced);
-
-    console.log(`[Import] Found ${bookmarks.length} bookmarks from ${browser}`);
-    return { bookmarks };
-
-  } catch (e) {
-    console.error(`[Import] Failed to read ${browser} bookmarks`, e);
-    return { bookmarks: [], error: 'Failed to read file' };
-  }
-});
+// Handlers moved to registerIpcHandlers
 
 
+// Handlers moved to registerIpcHandlers
 
-ipcMain.handle('delete-profile', async (_event, id) => {
-  if (!fs.existsSync(rootConfigPath)) return false;
-  try {
-    let config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8'));
-    config.profiles = (config.profiles || []).filter((p: any) => p.id !== id);
-    if (config.alwaysOpenProfile === id) {
-      delete config.alwaysOpenProfile;
-      const s = await initElectronStore();
-      s.delete('settings'); // Optional: clear local store for that profile if needed, but profiles are dir based now
-    }
-    fs.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
-
-    // Optionally delete data dir (User didn't explicitly ask for deletion of physical files, 
-    // but it's cleaner. Let's keep it safe and just remove from config for now unless they ask).
-    return true;
-  } catch (e) {
-    return false;
-  }
-});
-
-ipcMain.handle('rename-profile', (_event, { id, name }) => {
-  if (!fs.existsSync(rootConfigPath)) return false;
-  try {
-    let config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8'));
-    config.profiles = (config.profiles || []).map((p: any) =>
-      p.id === id ? { ...p, name } : p
-    );
-    fs.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
-    return true;
-  } catch (e) {
-    return false;
-  }
-});
-
-ipcMain.on('open-default-browser-settings', () => {
-  // Attempt to register as default for http/https right before opening settings
-  app.setAsDefaultProtocolClient('http');
-  app.setAsDefaultProtocolClient('https');
-
-  if (process.platform === 'win32') {
-    shell.openExternal('ms-settings:defaultapps');
-  } else if (process.platform === 'darwin') {
-    shell.openExternal('x-apple.systempreferences:com.apple.preference.general');
-  } else {
-    // Linux/Other
-    shell.openExternal('https://www.google.com/search?q=how+to+set+default+browser');
-  }
-});
 
 // --- Password Manager (Secure Vault) ---
 const getPasswordsPath = () => path.join(app.getPath('userData'), 'passwords.json');
 
-ipcMain.handle('get-passwords', () => {
-  const pPath = getPasswordsPath();
-  if (!fs.existsSync(pPath)) return [];
-  try {
-    const encryptedData = JSON.parse(fs.readFileSync(pPath, 'utf-8'));
-    return encryptedData.map((p: any) => {
-      try {
-        return {
-          ...p,
-          password: safeStorage.decryptString(Buffer.from(p.password, 'hex'))
-        };
-      } catch (e) {
-        return { ...p, password: '' }; // Failed to decrypt (e.g. machine change)
-      }
-    });
-  } catch (e) {
-    return [];
-  }
-});
+// Handlers moved to registerIpcHandlers
 
-ipcMain.handle('save-password', (_event, { url, username, password }) => {
-  const pPath = getPasswordsPath();
-  let passwords: any[] = [];
-  if (fs.existsSync(pPath)) {
-    try { passwords = JSON.parse(fs.readFileSync(pPath, 'utf-8')); } catch (e) { }
-  }
-
-  const encryptedPassword = safeStorage.encryptString(password).toString('hex');
-  let domain = url;
-  try { domain = new URL(url).hostname; } catch (e) { }
-
-  const existingIndex = passwords.findIndex(p => p.domain === domain && p.username === username);
-  if (existingIndex > -1) {
-    passwords[existingIndex].password = encryptedPassword;
-  } else {
-    passwords.push({ domain, username, password: encryptedPassword, timestamp: Date.now() });
-  }
-
-  fs.writeFileSync(pPath, JSON.stringify(passwords, null, 2));
-  return true;
-});
-
-ipcMain.handle('delete-password', (_event, { domain, username }) => {
-  const pPath = getPasswordsPath();
-  if (!fs.existsSync(pPath)) return false;
-  try {
-    let passwords = JSON.parse(fs.readFileSync(pPath, 'utf-8'));
-    passwords = passwords.filter((p: any) => !(p.domain === domain && p.username === username));
-    fs.writeFileSync(pPath, JSON.stringify(passwords, null, 2));
-    return true;
-  } catch (e) {
-    return false;
-  }
-});
 
 // --- History System (Time Travel) ---
 const getHistoryPath = () => path.join(app.getPath('userData'), 'history.json');
 
-ipcMain.handle('add-history-entry', (_event, entry) => {
-  const hPath = getHistoryPath();
-  let history: any[] = [];
-  if (fs.existsSync(hPath)) {
-    try { history = JSON.parse(fs.readFileSync(hPath, 'utf-8')); } catch (e) { }
-  }
+// Handlers moved to registerIpcHandlers
 
-  // Capture entry
-  history.unshift({
-    ...entry,
-    timestamp: Date.now()
+
+
+// --- CONSOLIDATED IPC HANDLERS ---
+const registerIpcHandlers = () => {
+  // Auto Updater
+  ipcMain.removeHandler('get-app-version');
+  ipcMain.handle('get-app-version', () => app.getVersion());
+
+  ipcMain.removeHandler('quit-and-install');
+  ipcMain.handle('quit-and-install', () => {
+    autoUpdater.quitAndInstall(false, true);
   });
 
-  // Prune logic: 1 year retention
-  const oneYearAgo = Date.now() - (365 * 24 * 60 * 60 * 1000);
-  const prunedHistory = history.filter(h => h.timestamp > oneYearAgo).slice(0, 5000); // Also cap at 5k for performance
+  // System
+  ipcMain.removeHandler('get-preload-path');
+  ipcMain.handle('get-preload-path', () => {
+    return path.join(__dirname, 'preload.js');
+  });
 
-  fs.writeFileSync(hPath, JSON.stringify(prunedHistory, null, 2));
-  return true;
-});
+  ipcMain.removeHandler('is-default-browser');
+  ipcMain.handle('is-default-browser', () => {
+    return app.isDefaultProtocolClient('http');
+  });
 
-ipcMain.handle('get-history', () => {
-  const hPath = getHistoryPath();
-  if (!fs.existsSync(hPath)) return [];
-  try {
-    const data = fs.readFileSync(hPath, 'utf-8');
-    return JSON.parse(data);
-  } catch (e) {
-    return [];
-  }
-});
-
-ipcMain.handle('delete-history-entry', (_event, timestamp) => {
-  const hPath = getHistoryPath();
-  if (!fs.existsSync(hPath)) return false;
-  try {
-    let history = JSON.parse(fs.readFileSync(hPath, 'utf-8'));
-    history = history.filter((h: any) => h.timestamp !== timestamp);
-    fs.writeFileSync(hPath, JSON.stringify(history, null, 2));
+  ipcMain.removeHandler('set-as-default');
+  ipcMain.handle('set-as-default', () => {
+    if (process.platform === 'win32') {
+      shell.openExternal('ms-settings:defaultapps');
+    } else if (process.platform === 'darwin') {
+      app.setAsDefaultProtocolClient('http');
+      app.setAsDefaultProtocolClient('https');
+    } else {
+      const { exec } = require('child_process');
+      exec('xdg-settings set default-web-browser rizo.desktop');
+    }
     return true;
-  } catch (e) {
-    return false;
-  }
-});
+  });
 
-ipcMain.handle('clear-history', (_event, timeframe) => {
-  const hPath = getHistoryPath();
-  if (!fs.existsSync(hPath)) return true;
-  if (timeframe === 'all') {
-    fs.writeFileSync(hPath, JSON.stringify([], null, 2));
+  ipcMain.on('open-default-browser-settings', () => {
+    app.setAsDefaultProtocolClient('http');
+    app.setAsDefaultProtocolClient('https');
+    if (process.platform === 'win32') shell.openExternal('ms-settings:defaultapps');
+    else if (process.platform === 'darwin') shell.openExternal('x-apple.systempreferences:com.apple.preference.general');
+    else shell.openExternal('https://www.google.com/search?q=how+to+set+default+browser');
+  });
+
+  // Store
+  ipcMain.removeHandler('get-store-value');
+  ipcMain.handle('get-store-value', async (event, key) => {
+    const s = await initElectronStore();
+    return s.get(key);
+  });
+
+  ipcMain.removeHandler('set-store-value');
+  ipcMain.handle('set-store-value', async (event, key, value) => {
+    const s = await initElectronStore();
+    s.set(key, value);
+  });
+
+  ipcMain.removeHandler('get-extension-storage');
+  ipcMain.handle('get-extension-storage', async (event, key) => {
+    const s = await initElectronStore();
+    return s.get(key);
+  });
+
+  // Profile Management
+  ipcMain.removeHandler('get-profiles-list');
+  ipcMain.handle('get-profiles-list', async () => {
+    const s = await initElectronStore();
+    return s.get('profiles') || [];
+  });
+
+  ipcMain.removeHandler('create-profile');
+  ipcMain.handle('create-profile', async (_event, profileData) => {
+    const s = await initElectronStore();
+    const profiles = (s.get('profiles') as any[]) || [];
+    const newProfile = { id: randomUUID(), ...profileData, avatar: profileData.avatar || 'default' };
+    profiles.push(newProfile);
+    s.set('profiles', profiles); // PERSIST IMMEDIATELY
+    return newProfile;
+  });
+
+  ipcMain.removeHandler('set-active-profile');
+  ipcMain.handle('set-active-profile', async (_event, id) => {
+    const s = await initElectronStore();
+    s.set('lastActiveProfileId', id);
+  });
+
+  ipcMain.removeHandler('delete-profile');
+  ipcMain.handle('delete-profile', async (_event, id) => {
+    if (!fs.existsSync(rootConfigPath)) return false;
+    try {
+      let config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8'));
+      config.profiles = (config.profiles || []).filter((p: any) => p.id !== id);
+      if (config.alwaysOpenProfile === id) {
+        delete config.alwaysOpenProfile;
+        const s = await initElectronStore();
+        // s.delete('settings'); // Optional
+      }
+      fs.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
+      return true;
+    } catch (e) { return false; }
+  });
+
+  ipcMain.removeHandler('rename-profile');
+  ipcMain.handle('rename-profile', async (_event, { id, name }) => {
+    if (!fs.existsSync(rootConfigPath)) return false;
+    try {
+      let config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8'));
+      config.profiles = (config.profiles || []).map((p: any) => p.id === id ? { ...p, name } : p);
+      fs.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
+      return true;
+    } catch (e) { return false; }
+  });
+
+  ipcMain.on('select-profile', (_event, { id, alwaysOpen }) => {
+    if (alwaysOpen) {
+      let config: any = { profiles: [] };
+      if (fs.existsSync(rootConfigPath)) {
+        try { config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8')); } catch (e) { }
+      }
+      config.alwaysOpenProfile = id;
+      fs.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
+    }
+    app.relaunch({ args: process.argv.slice(1).filter(a => !a.startsWith('--profile-id=')).concat([`--profile-id=${id}`]) });
+    app.exit(0);
+  });
+
+  ipcMain.on('switch-to-profile-selector', () => {
+    let config: any = { profiles: [] };
+    if (fs.existsSync(rootConfigPath)) {
+      try { config = JSON.parse(fs.readFileSync(rootConfigPath, 'utf-8')); } catch (e) { }
+    }
+    delete config.alwaysOpenProfile;
+    fs.writeFileSync(rootConfigPath, JSON.stringify(config, null, 2));
+    app.relaunch({ args: process.argv.slice(1).filter(a => !a.startsWith('--profile-id=')).concat(['--selection-mode=true']) });
+    app.exit(0);
+  });
+
+  ipcMain.on('open-incognito-window', () => {
+    launchIncognito();
+  });
+
+  // AI & Suggestions
+  ipcMain.removeHandler('ask-ai');
+  ipcMain.handle('ask-ai', async (event, { text, prompt }) => {
+    const settings = store.get('settings');
+    const API_KEY = settings?.openRouterApiKey || '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';
+    try {
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${API_KEY}`,
+          'HTTP-Referer': 'https://rizo.browser',
+          'X-Title': 'Rizo Browser',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'google/gemini-2.0-flash-001',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a browser command palette assistant. 
+              Output MUST be a valid JSON object ONLY. 
+              DO NOT wrap in markdown code blocks. NO conversational filler.
+              Required structure: { "results": [], "directAnswer": "" }
+              - results: Array of {title, subtitle, type: "url"|"copy"|"action", url?, content?, actionType?}
+              - directAnswer: string (if the user asks a question, put the text here).`
+            },
+            { role: 'user', content: `${prompt}\n\nInput Text:\n"${text}"` }
+          ]
+        })
+      });
+      if (!response.ok) throw new Error('AI Request Failed');
+      const data = await response.json();
+      return data.choices?.[0]?.message?.content || "No response generated.";
+    } catch (error) {
+      console.error('[Main] AI Error:', error);
+      return "Sorry, I encountered an error connecting to the AI.";
+    }
+  });
+
+  ipcMain.removeHandler('get-suggestions');
+  ipcMain.handle('get-suggestions', async (_event, query) => {
+    if (!query || !query.trim()) return [];
+    return new Promise((resolve) => {
+      const request = net.request(`http://google.com/complete/search?client=chrome&q=${encodeURIComponent(query)}`);
+      request.on('response', (response) => {
+        let body = '';
+        response.on('data', (chunk) => body += chunk);
+        response.on('end', () => {
+          try { resolve(JSON.parse(body)[1] || []); } catch (e) { resolve([]); }
+        });
+      });
+      request.on('error', () => resolve([]));
+      request.end();
+    });
+  });
+
+  // Browser Data & History
+  ipcMain.removeHandler('import-browser-data');
+  ipcMain.handle('import-browser-data', async (_event, browser: 'chrome' | 'edge') => {
+    const localAppData = process.env.LOCALAPPDATA || '';
+    let bookmarksPath = browser === 'chrome'
+      ? path.join(localAppData, 'Google', 'Chrome', 'User Data', 'Default', 'Bookmarks')
+      : path.join(localAppData, 'Microsoft', 'Edge', 'User Data', 'Default', 'Bookmarks');
+
+    if (!fs.existsSync(bookmarksPath)) return { bookmarks: [] };
+    try {
+      const data = JSON.parse(fs.readFileSync(bookmarksPath, 'utf-8'));
+      const bookmarks: any[] = [];
+      const processNode = (node: any) => {
+        if (node.type === 'url') bookmarks.push({ id: randomUUID(), title: node.name, url: node.url, favicon: `https://www.google.com/s2/favicons?sz=64&domain_url=${node.url}` });
+        else if (node.type === 'folder' && node.children) node.children.forEach(processNode);
+      };
+      if (data.roots.bookmark_bar) processNode(data.roots.bookmark_bar);
+      if (data.roots.other) processNode(data.roots.other);
+      if (data.roots.synced) processNode(data.roots.synced);
+      return { bookmarks };
+    } catch (e) { return { bookmarks: [], error: 'Failed to read file' }; }
+  });
+
+  ipcMain.removeHandler('add-history-entry');
+  ipcMain.handle('add-history-entry', (_event, entry) => {
+    const hPath = getHistoryPath();
+    let history: any[] = [];
+    if (fs.existsSync(hPath)) { try { history = JSON.parse(fs.readFileSync(hPath, 'utf-8')); } catch (e) { } }
+    history.unshift({ ...entry, timestamp: Date.now() });
+    const oneYearAgo = Date.now() - (365 * 24 * 60 * 60 * 1000);
+    const prunedHistory = history.filter(h => h.timestamp > oneYearAgo).slice(0, 5000);
+    fs.writeFileSync(hPath, JSON.stringify(prunedHistory, null, 2));
     return true;
-  }
+  });
 
-  let cutoff = 0;
-  const now = Date.now();
-  if (timeframe === 'hour') cutoff = now - (60 * 60 * 1000);
-  else if (timeframe === 'day') cutoff = now - (24 * 60 * 60 * 1000);
-  else if (timeframe === 'week') cutoff = now - (7 * 24 * 60 * 60 * 1000);
+  ipcMain.removeHandler('get-history');
+  ipcMain.handle('get-history', () => {
+    const hPath = getHistoryPath();
+    if (!fs.existsSync(hPath)) return [];
+    try { return JSON.parse(fs.readFileSync(hPath, 'utf-8')); } catch (e) { return []; }
+  });
 
-  try {
-    let history = JSON.parse(fs.readFileSync(hPath, 'utf-8'));
-    history = history.filter((h: any) => h.timestamp < cutoff);
-    fs.writeFileSync(hPath, JSON.stringify(history, null, 2));
+  ipcMain.removeHandler('delete-history-entry');
+  ipcMain.handle('delete-history-entry', (_event, timestamp) => {
+    const hPath = getHistoryPath();
+    if (!fs.existsSync(hPath)) return false;
+    try {
+      let history = JSON.parse(fs.readFileSync(hPath, 'utf-8'));
+      history = history.filter((h: any) => h.timestamp !== timestamp);
+      fs.writeFileSync(hPath, JSON.stringify(history, null, 2));
+      return true;
+    } catch (e) { return false; }
+  });
+
+  ipcMain.removeHandler('clear-history');
+  ipcMain.handle('clear-history', (_event, timeframe) => {
+    const hPath = getHistoryPath();
+    if (!fs.existsSync(hPath)) return true;
+    if (timeframe === 'all') { fs.writeFileSync(hPath, JSON.stringify([], null, 2)); return true; }
+    let cutoff = 0;
+    const now = Date.now();
+    if (timeframe === 'hour') cutoff = now - (60 * 60 * 1000);
+    else if (timeframe === 'day') cutoff = now - (24 * 60 * 60 * 1000);
+    else if (timeframe === 'week') cutoff = now - (7 * 24 * 60 * 60 * 1000);
+    try {
+      let history = JSON.parse(fs.readFileSync(hPath, 'utf-8'));
+      history = history.filter((h: any) => h.timestamp < cutoff);
+      fs.writeFileSync(hPath, JSON.stringify(history, null, 2));
+      return true;
+    } catch (e) { return false; }
+  });
+
+  // Passwords
+  ipcMain.removeHandler('get-passwords');
+  ipcMain.handle('get-passwords', () => {
+    const pPath = getPasswordsPath();
+    if (!fs.existsSync(pPath)) return [];
+    try {
+      const encryptedData = JSON.parse(fs.readFileSync(pPath, 'utf-8'));
+      return encryptedData.map((p: any) => {
+        try { return { ...p, password: safeStorage.decryptString(Buffer.from(p.password, 'hex')) }; }
+        catch (e) { return { ...p, password: '' }; }
+      });
+    } catch (e) { return []; }
+  });
+
+  ipcMain.removeHandler('save-password');
+  ipcMain.handle('save-password', (_event, { url, username, password }) => {
+    const pPath = getPasswordsPath();
+    let passwords: any[] = [];
+    if (fs.existsSync(pPath)) { try { passwords = JSON.parse(fs.readFileSync(pPath, 'utf-8')); } catch (e) { } }
+    const encryptedPassword = safeStorage.encryptString(password).toString('hex');
+    let domain = url; try { domain = new URL(url).hostname; } catch (e) { }
+    const existingIndex = passwords.findIndex(p => p.domain === domain && p.username === username);
+    if (existingIndex > -1) passwords[existingIndex].password = encryptedPassword;
+    else passwords.push({ domain, username, password: encryptedPassword, timestamp: Date.now() });
+    fs.writeFileSync(pPath, JSON.stringify(passwords, null, 2));
     return true;
-  } catch (e) {
-    return false;
-  }
-});
+  });
 
-ipcMain.on('password-form-submit', (event, data) => {
-  // Get the main window where the UI prompt should show
-  mainWindow?.webContents.send('prompt-save-password', data);
-});
+  ipcMain.removeHandler('delete-password');
+  ipcMain.handle('delete-password', (_event, { domain, username }) => {
+    const pPath = getPasswordsPath();
+    if (!fs.existsSync(pPath)) return false;
+    try {
+      let passwords = JSON.parse(fs.readFileSync(pPath, 'utf-8'));
+      passwords = passwords.filter((p: any) => !(p.domain === domain && p.username === username));
+      fs.writeFileSync(pPath, JSON.stringify(passwords, null, 2));
+      return true;
+    } catch (e) { return false; }
+  });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+  // Window Controls & UI
+  ipcMain.on('minimize-window', () => mainWindow?.minimize());
+  ipcMain.on('maximize-window', () => {
+    if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+    else mainWindow?.maximize();
+  });
+  ipcMain.on('close-window', () => mainWindow?.close());
+  ipcMain.on('open-dev-tools', (event) => event.sender.openDevTools());
+  ipcMain.on('clear-cache', async (event) => {
+    const ses = event.sender.session;
+    await ses.clearCache();
+    await ses.clearStorageData({ storages: ['cookies', 'localstorage', 'indexdb', 'cachestorage'] });
+  });
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
-});
+  // Navigation
+  ipcMain.on('webview-go-back', (event) => {
+    if (event.sender.canGoBack()) {
+      event.sender.goBack();
+      mainWindow?.webContents.send('navigation-feedback', 'back');
+    }
+  });
+  ipcMain.on('webview-go-forward', (event) => {
+    if (event.sender.canGoForward()) {
+      event.sender.goForward();
+      mainWindow?.webContents.send('navigation-feedback', 'forward');
+    }
+  });
 
-// Bottom of file cleaned up
+  // Downloads
+  ipcMain.on('download-control', (event, { id, action }) => {
+    const item = downloadItems.get(id);
+    if (!item) return;
+    if (action === 'pause' && !item.isPaused()) item.pause();
+    if (action === 'resume' && item.isPaused()) item.resume();
+    if (action === 'cancel') item.cancel();
+    mainWindow?.webContents.send('download-progress', { id, receivedBytes: item.getReceivedBytes(), totalBytes: item.getTotalBytes(), state: 'progressing', isPaused: item.isPaused() });
+  });
+  ipcMain.on('show-in-folder', (event, path) => shell.showItemInFolder(path));
+  ipcMain.on('open-file', (event, path) => shell.openPath(path));
+
+  // Shortcuts handled via globalShortcut and before-input-event
+  ipcMain.on('set-shortcuts-enabled', (event, enabled) => {
+    shortcutsEnabled = enabled;
+    if (enabled) {
+      // Re-register global shortcuts if enabled
+      // (Assuming we call the registration function here or handle it elsewhere)
+    } else {
+      globalShortcut.unregisterAll();
+    }
+    console.log('[Main] Shortcuts enabled:', enabled);
+  });
+
+
+  ipcMain.on('toggle-command-palette-internal', () => {
+    mainWindow?.webContents.send('trigger-command-palette');
+  });
+
+  ipcMain.on('toggle-ghost-search-internal', () => {
+    mainWindow?.webContents.send('trigger-ghost-search');
+  });
+
+
+
+  // Tab Sleep
+  ipcMain.on('tab-accessed', (event, tabId) => tabAccessMap.set(tabId, Date.now()));
+  ipcMain.on('wake-tab', (event, tabId) => tabAccessMap.set(tabId, Date.now()));
+
+  // AdBlocker
+  ipcMain.on('update-adblocker-settings', async () => {
+    blockerEngine = null;
+    for (const ses of Array.from(activeSessions)) {
+      const blocker = await getBlocker();
+      (blocker as any).disableBlockingInSession(ses);
+      if (store.get('settings')?.adBlockEnabled) await enableAdBlocker(ses);
+    }
+  });
+
+  // Gemini
+  ipcMain.on('gemini-summarize-request', () => mainWindow?.webContents.send('gemini-get-context'));
+  ipcMain.on('gemini-context-data', (_event, data) => {
+    mainWindow?.webContents.send('gemini-inject-context', data);
+    mainWindow?.webContents.send('open-gemini-panel');
+  });
+
+  ipcMain.on('password-form-submit', (event, data) => mainWindow?.webContents.send('prompt-save-password', data));
+
+  // Context Menu
+  ipcMain.on('show-context-menu', (event, params) => {
+    const webContents = event.sender;
+    const win = BrowserWindow.fromWebContents(webContents);
+    const template: any[] = [];
+    const createTab = (url: string) => win?.webContents.send('create-tab', { url });
+
+    if (params.linkURL) {
+      template.push({ label: 'Open Link in New Tab', click: () => createTab(params.linkURL) });
+      template.push({ label: 'Copy Link Address', click: () => clipboard.writeText(params.linkURL) });
+      template.push({ type: 'separator' });
+    }
+    if (params.mediaType === 'image' && params.srcURL) {
+      template.push({ label: 'Open Image in New Tab', click: () => createTab(`rizo://view-image?src=${encodeURIComponent(params.srcURL)}`) });
+      template.push({
+        label: 'Save Image As...', click: async () => {
+          const { filePath } = await dialog.showSaveDialog(win || mainWindow!, { defaultPath: params.srcURL.split('/').pop()?.split('?')[0] || 'image.png' });
+          if (filePath) { saveAsPaths.set(params.srcURL, filePath); webContents.downloadURL(params.srcURL); }
+        }
+      });
+      template.push({ label: 'Copy Image', click: () => webContents.copyImageAt(Math.floor(params.x), Math.floor(params.y)) });
+      template.push({ type: 'separator' });
+    }
+    if (params.selectionText) {
+      template.push({ label: `Search Google for "${params.selectionText.substring(0, 20)}..."`, click: () => createTab(`https://www.google.com/search?q=${encodeURIComponent(params.selectionText)}`) });
+      template.push({ type: 'separator' });
+      template.push({ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { type: 'separator' });
+    }
+    if (!params.linkURL && !params.selectionText && params.mediaType === 'none') {
+      template.push({ label: 'Back', enabled: params.editFlags?.canGoBack, click: () => webContents.send('execute-browser-backward') });
+      template.push({ label: 'Forward', enabled: params.editFlags?.canGoForward, click: () => webContents.send('execute-browser-forward') });
+      template.push({ label: 'Reload', click: () => webContents.send('reload') });
+      template.push({ type: 'separator' }, { label: 'Print...', click: () => webContents.print() }, { type: 'separator' });
+    }
+    template.push({ label: 'Inspect Element', click: () => webContents.inspectElement(params.x, params.y) });
+    Menu.buildFromTemplate(template).popup({ window: win || undefined });
+  });
+};
+

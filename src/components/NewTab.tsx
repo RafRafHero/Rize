@@ -247,7 +247,7 @@ export const NewTab: React.FC<NewTabProps> = ({ tabId }) => {
                         animate={{ scale: 1, opacity: 1 }}
                         transition={appleSpring}
                         className={cn(
-                            "text-6xl md:text-8xl tracking-tighter drop-shadow-xl select-none transition-all duration-300",
+                            "text-6xl md:text-8xl tracking-tighter drop-shadow-xl select-none transition-all duration-300 italic",
                             config.clockThickness || "font-thin"
                         )}
                         style={{ color: config.clockColor || '#ffffff', textShadow: '0 4px 12px rgba(0,0,0,0.3)' }}

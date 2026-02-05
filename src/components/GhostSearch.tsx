@@ -47,9 +47,9 @@ export const GhostSearch: React.FC = () => {
     // Handle IPC toggle
     useEffect(() => {
         const handleIpcToggle = () => toggleGhostSearch();
-        (window as any).rizoAPI?.ipcRenderer.on('toggle-ghost-search', handleIpcToggle);
+        (window as any).rizoAPI?.ipcRenderer.on('trigger-ghost-search', handleIpcToggle);
         return () => {
-            (window as any).rizoAPI?.ipcRenderer.off('toggle-ghost-search', handleIpcToggle);
+            (window as any).rizoAPI?.ipcRenderer.off('trigger-ghost-search', handleIpcToggle);
         };
     }, [toggleGhostSearch]);
 
@@ -94,7 +94,7 @@ export const GhostSearch: React.FC = () => {
 
     return (
         <AnimatePresence>
-            <div className="fixed inset-0 z-[9999] flex items-start justify-center pt-[15vh] px-4 pointer-events-none">
+            <div className="fixed inset-0 z-[2147483647] flex items-start justify-center pt-[15vh] px-4 pointer-events-none">
                 <motion.div
                     initial={{ opacity: 0, scale: 0.95, y: -20 }}
                     animate={{ opacity: 1, scale: 1, y: 0 }}

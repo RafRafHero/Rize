@@ -19,9 +19,11 @@ import { GhostSearch } from './components/GhostSearch';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { GlassCardsOverlay } from './components/GlassCardsOverlay';
 import { OnboardingOverlay } from './components/OnboardingOverlay';
+import { CommandPalette } from './components/CommandPalette';
+import { Sparkles } from 'lucide-react';
 
 function App() {
-  const { tabs, activeTabId, setActiveTab, updateTab, addTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setUpdateReady, sleepTab, wakeTab } = useStore();
+  const { tabs, activeTabId, setActiveTab, updateTab, addTab, settings, addDownload, updateDownload, completeDownload, selectionMode, activeInternalPage, setInternalPage, clearCapturedPassword, toggleGlassCards, isGlassCardsOverviewOpen, setUpdateReady, sleepTab, wakeTab, toast } = useStore();
 
   const [showDefaultBanner, setShowDefaultBanner] = useState(false);
 
@@ -49,8 +51,30 @@ function App() {
         sleepTab(tabId);
       });
 
+      // Ghost Search IPC listener
+      ipc.on('trigger-ghost-search', (_event: any, open?: boolean) => {
+        useStore.getState().toggleGhostSearch(open);
+      });
+
+      // Command Palette IPC listener
+      ipc.on('trigger-command-palette', (_event: any, open?: boolean) => {
+        console.log("Shortcut Received: Opening Palette", open);
+        useStore.getState().showToast("Shortcut: Opening Palette", "info");
+        useStore.getState().toggleCommandPalette(open);
+      });
+
+      // Tabs Showcase IPC listener
+      ipc.on('toggle-tabs-showcase', (_event: any, open?: boolean) => {
+        useStore.getState().toggleGlassCards(open);
+      });
+
+
       // Deep link: open URL in new tab
       ipc.on('open-url', (_event: any, url: string) => {
+        addTab(url);
+      });
+
+      ipc.on('create-tab', (_event: any, { url }: { url: string }) => {
         addTab(url);
       });
     }
@@ -114,7 +138,7 @@ function App() {
         } else {
           // Match by key (e.g., "k") or by physical code (e.g., "keyk")
           const keyMatch = currentKey === tk;
-          const codeMatch = currentCode === tk || currentCode === `key${tk}` || currentCode === `digit${tk}`;
+          const codeMatch = currentCode === tk || currentCode === `key${tk} ` || currentCode === `digit${tk} `;
 
           if (!keyMatch && !codeMatch) return false;
         }
@@ -123,39 +147,9 @@ function App() {
       return true;
     };
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const showcaseKey = settings.keybinds?.tabsShowcase || 'CommandOrControl+Shift+T';
-      if (matchShortcut(e, showcaseKey)) {
-        e.preventDefault();
+    // Keydown listener in App.tsx is now mostly redundant for primary shortcuts
+    // as it is handled by the main process and webview focus bridge.
 
-        const isOpen = useStore.getState().isGlassCardsOverviewOpen;
-
-        // If opening, capture current tab first for fresh snapshot
-        if (!isOpen) {
-          const currentActiveId = useStore.getState().activeTabId;
-          const wv = webviewRefs.current[currentActiveId];
-          if (wv && wv.capturePage) {
-            wv.capturePage().then((image: any) => {
-              if (image && !image.isEmpty()) {
-                updateTab(currentActiveId, { thumbnailUrl: image.toDataURL() });
-              }
-              // Open after capture (or attempt)
-              toggleGlassCards(true);
-            }).catch((err: any) => {
-              console.error("Snapshot error:", err);
-              toggleGlassCards(true);
-            });
-          } else {
-            toggleGlassCards(true);
-          }
-        } else {
-          toggleGlassCards(false);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleGlassCards, updateTab, settings]);
 
   const activeTab = tabs.find(t => t.id === activeTabId);
@@ -173,7 +167,7 @@ function App() {
         document.documentElement.classList.remove('mode-day', 'mode-night', 'mode-sunset', 'mode-midnight'); // Remove all possible modes first
         if (mode) {
           document.documentElement.classList.add(`mode-${mode}`);
-        } else if (currentSettings.theme === 'dark' || (currentSettings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        } else if (currentSettings.theme === 'dark') {
           document.documentElement.classList.add('mode-night');
         } else {
           // Default to day mode if no specific mode and not dark
@@ -231,7 +225,7 @@ function App() {
   return (
     <div className={cn(
       "relative h-screen w-screen overflow-hidden text-foreground bg-black transition-colors duration-500",
-      useStore.getState().isIncognito ? "mode-midnight" : settings.homePageConfig.mode ? `mode-${settings.homePageConfig.mode}` : (settings.theme === 'dark' ? "mode-night" : "mode-none")
+      useStore.getState().isIncognito ? "mode-midnight" : settings.homePageConfig.mode ? `mode - ${settings.homePageConfig.mode} ` : (settings.theme === 'dark' ? "mode-night" : "mode-none")
     )}>
       {/* Background Layer */}
       {useStore.getState().isIncognito ? (
@@ -337,7 +331,7 @@ function App() {
                   const isVisible = settings.isSplitScreen ? (isPrimary || isSecondary) : (tab.id === activeTabId);
 
                   return (
-                    <ErrorBoundary key={tab.id} name={`Tab: ${tab.title || tab.id}`}>
+                    <ErrorBoundary key={tab.id} name={`Tab: ${tab.title || tab.id} `}>
                       <div
                         className={cn(
                           "h-full relative transition-all duration-300",
@@ -384,8 +378,23 @@ function App() {
       )}
       <DownloadsPage />
       <GhostSearch />
+      <CommandPalette />
       <GlassCardsOverlay />
       <OnboardingOverlay />
+
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 px-4 py-2 bg-primary text-primary-foreground rounded-full shadow-lg z-[10000] text-sm font-medium flex items-center gap-2"
+          >
+            <Sparkles size={14} />
+            {toast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
